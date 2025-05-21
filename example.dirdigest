@@ -1,0 +1,111 @@
+# .dirdigest
+# This is a sample configuration file for dirdigest.
+# Settings here provide defaults that can be overridden by command-line arguments.
+
+default:
+  # --- Target Directory ---
+  # Specifies the root directory to process.
+  # If not set, defaults to the current working directory from where dirdigest is run.
+  # Type: string (path)
+  # CLI Equivalent: DIRECTORY (positional argument)
+  # directory: "./my_project" # Example: "src/", "/path/to/your/project"
+
+  # --- Output Settings ---
+  # Path to the output file. If omitted or null, output goes to stdout.
+  # Type: string (path) or null
+  # CLI Equivalent: --output / -o
+  # output: "project_digest.md" # Example: "report.json"
+
+  # Format of the generated digest.
+  # Type: string, choices: "markdown", "json"
+  # CLI Equivalent: --format / -f
+  format: "markdown" # Default is "markdown"
+
+  # --- Filtering: Traversal and Content ---
+  # Maximum size (in Kilobytes) for individual files to be included.
+  # Files larger than this will be excluded.
+  # Type: integer (KB)
+  # CLI Equivalent: --max-size / -s
+  max_size: 300 # Default is 300 KB
+
+  # Maximum depth of directories to traverse.
+  # Depth 0 processes only files in the 'directory'.
+  # null means unlimited depth.
+  # Type: integer or null
+  # CLI Equivalent: --max-depth / -d
+  max_depth: null # Default is unlimited
+
+  # --- Filtering: Ignore Patterns ---
+  # Disable all default ignore patterns (e.g., .git, __pycache__, node_modules, common binary/media files).
+  # Set to true if you need to include items normally ignored by default.
+  # Type: boolean (true/false)
+  # CLI Equivalent: --no-default-ignore
+  no_default_ignore: false # Default is false (meaning default ignores ARE active)
+
+  # List of glob patterns for files/directories to INCLUDE.
+  # If specified, only items matching these patterns are processed (after exclusions).
+  # Can be a list of strings or a single comma-separated string.
+  # Type: list of strings or string
+  # CLI Equivalent: --include / -i (can be used multiple times)
+  include:
+    # - "*.py"
+    # - "src/**/*.js" # Include all JS files within src and its subdirectories
+    # - "docs/"       # Include the entire docs directory
+    # - "*.txt,*.md" # Example of comma-separated string if preferred (gets normalized to list)
+
+  # List of glob patterns for files/directories to EXCLUDE.
+  # These take precedence over include patterns and default ignores.
+  # Can be a list of strings or a single comma-separated string.
+  # Type: list of strings or string
+  # CLI Equivalent: --exclude / -x (can be used multiple times)
+  exclude:
+    # - "*.log"
+    # - "**/temp/"
+    # - "build/"
+    # - "dist/"
+    # - "node_modules/"
+    # - ".venv/"
+    # - "data/large_files/"
+    # - "config.yaml,secrets.txt" # Example of comma-separated string
+
+  # --- Symlink Handling ---
+  # Follow symbolic links to directories and files.
+  # By default (false), symlinks themselves are noted but not traversed/read.
+  # Type: boolean (true/false)
+  # CLI Equivalent: --follow-symlinks
+  follow_symlinks: false # Default is false
+
+  # --- Error Handling ---
+  # Continue processing if an error occurs while reading a file (e.g., permission denied, decoding error).
+  # If true, the file's content will be omitted or noted as an error in the digest.
+  # If false (default), such files might be excluded or cause the process to halt depending on error type.
+  # Type: boolean (true/false)
+  # CLI Equivalent: --ignore-errors
+  ignore_errors: false # Default is false
+
+  # --- UI/UX Settings ---
+  # Copy the generated digest to the system clipboard.
+  # Type: boolean (true/false)
+  # CLI Equivalent: --clipboard / --no-clipboard or -c
+  clipboard: true # Default is true; copies content (stdout) or file's directory path (-o) to clipboard
+
+  # Console verbosity level.
+  # 0: WARNINGS and above (default)
+  # 1: INFO and above (-v)
+  # 2: DEBUG and above (-vv)
+  # Type: integer (0, 1, or 2)
+  # CLI Equivalent: --verbose / -v (count)
+  verbose: 0
+
+  # Suppress all console output below ERROR level. Overrides 'verbose'.
+  # Type: boolean (true/false)
+  # CLI Equivalent: --quiet / -q
+  quiet: false # Default is false
+
+  # Path to a file for detailed logging.
+  # All logs (including DEBUG level) will be written here, regardless of console verbosity.
+  # Set to null or omit if no log file is desired.
+  # Type: string (path) or null
+  # CLI Equivalent: --log-file
+  # log_file: "dirdigest_run.log" # Example: "debug_output.txt"
+  log_file: null # Default is no log file

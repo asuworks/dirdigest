@@ -1,0 +1,25 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+# Install pre-commit: uv pip install pre-commit
+# Install hooks: uv run pre-commit install
+
+# Default minimum version of pre-commit.
+minimum_pre_commit_version: '2.15.0'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0 # Use the latest stable version
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files # Prevent committing large files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Ruff version. Must be fixed if you install ruff separately.
+    rev: 'v0.5.0' # Use a specific Ruff version consistent with your pyproject.toml
+    hooks:
+      - id: ruff
+        args: [--fix, --exit-non-zero-on-fix] # Auto-fix and fail if fixes were made
+      - id: ruff-format
