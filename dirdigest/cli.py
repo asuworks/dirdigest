@@ -8,7 +8,7 @@ from rich.markup import escape
 
 from dirdigest import core
 from dirdigest import formatter as dirdigest_formatter
-from dirdigest.constants import TOOL_NAME, TOOL_VERSION
+from dirdigest.constants import TOOL_NAME, TOOL_VERSION, DEFAULT_SORT_ORDER, SORT_OPTIONS
 from dirdigest.utils import clipboard as dirdigest_clipboard
 from dirdigest.utils import config as dirdigest_config
 from dirdigest.utils import logger as dirdigest_logger
@@ -23,6 +23,16 @@ from dirdigest.utils.tokens import approximate_token_count
     name=TOOL_NAME,
     context_settings=dict(help_option_names=["-h", "--help"]),
     help="Recursively processes directories and files, creating a structured digest suitable for LLM context ingestion.",
+)
+@click.option(
+    "--sort-output-log-by",
+    multiple=True,
+    type=click.Choice(SORT_OPTIONS, case_sensitive=False),
+    help=(
+        "Sort the output log by one or more keys. Default: 'status', 'size'. "
+        "Available options: 'status', 'size', 'path'. "
+        "Specify multiple times for multi-key sorting (e.g., --sort-output-log-by status --sort-output-log-by size)."
+    ),
 )
 @click.version_option(
     version=TOOL_VERSION, prog_name=TOOL_NAME, message="%(prog)s version %(version)s"
@@ -169,6 +179,7 @@ def main_cli(
     quiet: bool,
     log_file: pathlib.Path | None,
     config_path_cli: pathlib.Path | None,
+    sort_output_log_by: tuple[str, ...],
 ):
     start_time = time.monotonic()
 
@@ -249,6 +260,12 @@ def main_cli(
     final_follow_symlinks = final_settings.get("follow_symlinks", follow_symlinks)
     final_ignore_errors = final_settings.get("ignore_errors", ignore_errors)
     final_clipboard = final_settings.get("clipboard", clipboard)
+    final_sort_output_log_by = final_settings.get("sort_output_log_by", sort_output_log_by)
+
+    if not final_sort_output_log_by: # If empty tuple from CLI and not in config
+        final_sort_output_log_by = DEFAULT_SORT_ORDER
+    # Ensure it's a list for potential modification or consistent use later
+    final_sort_output_log_by = list(final_sort_output_log_by)
 
     log.debug(f"CLI: Final effective settings after merge: {final_settings}")
     log.info(f"CLI: Processing directory: [log.path]{final_directory}[/log.path]")
@@ -272,6 +289,7 @@ def main_cli(
             f"CLI: Follow symlinks: {final_follow_symlinks}, Ignore errors: {final_ignore_errors}"
         )
         log.info(f"CLI: Clipboard: {final_clipboard}")
+        log.info(f"CLI: Sort output log by: {final_sort_output_log_by}")
 
     processed_items_generator, stats_from_core = core.process_directory_recursive(
         base_dir_path=final_directory,
@@ -285,22 +303,32 @@ def main_cli(
     )
 
     log.info("CLI: Building digest tree...")
-    root_node, metadata_for_output = core.build_digest_tree(
-        final_directory, processed_items_generator, stats_from_core
+    root_node, sorted_log_items, metadata_for_output = core.build_digest_tree(
+        base_dir_path=final_directory,
+        processed_items_generator=processed_items_generator,
+        initial_stats_from_traversal=stats_from_core, # This is the original stats from process_directory_recursive
+        sort_options=final_sort_output_log_by
     )
     log.debug(
         f"CLI: Digest tree built. Root node children: {len(root_node.get('children', []))}"
     )
+    log.debug(f"CLI: Sorted log items count: {len(sorted_log_items)}")
     log.debug(f"CLI: Metadata for output: {metadata_for_output}")
 
     selected_formatter: dirdigest_formatter.BaseFormatter
     if final_format.lower() == "json":
         selected_formatter = dirdigest_formatter.JsonFormatter(
-            final_directory, metadata_for_output
+            base_dir_path=final_directory,
+            root_node=root_node,
+            sorted_output_list=sorted_log_items,
+            cli_metadata=metadata_for_output
         )
     elif final_format.lower() == "markdown":
         selected_formatter = dirdigest_formatter.MarkdownFormatter(
-            final_directory, metadata_for_output
+            base_dir_path=final_directory,
+            root_node=root_node,
+            sorted_output_list=sorted_log_items,
+            cli_metadata=metadata_for_output
         )
     else:
         log.critical(f"CLI: Invalid format '{final_format}' encountered. Exiting.")

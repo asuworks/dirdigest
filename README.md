@@ -140,6 +140,7 @@ The following table lists the command-line options and their corresponding keys 
 | `--quiet`                     | `-q`  | `quiet`                 | Suppress all console output below ERROR level. Overrides `-v`.                                                                                                          | `False`            |
 | `--log-file PATH`             |       | `log_file`              | Path to a file for detailed logging. All logs (including DEBUG level) will be written here, regardless of console verbosity.                                           | `None`             |
 | `--config PATH`               |       | N/A                     | Specify configuration file path. If omitted, tries to load `./.dirdigest`. Not set within the config file itself.                                                        | `None`             |
+| `--sort-output-log-by OPTION` |       | `sort_output_log_by`    | Sort the detailed list of processed items in the output. Valid options: `status`, `size`, `path`. Can be specified multiple times for prioritized sorting (e.g., `--sort-output-log-by status --sort-output-log-by size`). | `status`, `size`   |
 | `--version`                   |       | N/A                     | Show the version of `dirdigest` and exit.                                                                                                                               | N/A                |
 | `--help`                      | `-h`  | N/A                     | Show this help message and exit.                                                                                                                                        | N/A                |
 
@@ -310,6 +311,61 @@ default:
     dirdigest . -vv --log-file processing_details.log
     ```
     Check `processing_details.log` for detailed DEBUG messages about each file and directory encountered.
+
+7.  **Sort the processing log by path after status:**
+    ```bash
+    dirdigest . --sort-output-log-by status --sort-output-log-by path
+    ```
+
+## Output Format Details
+
+`dirdigest` can produce output in two main formats: Markdown (default) and JSON.
+
+### Markdown Format
+
+The Markdown output is structured for human readability and easy parsing by LLMs. It typically includes:
+
+1.  **Header:** Title, tool version, creation timestamp, and summary statistics (included files count, total content size).
+2.  **Directory Structure:** A tree-like visualization of the processed directory, showing included files and folders.
+3.  **Processing Log (New):** A detailed list of all items (files and directories) that the tool encountered and made a decision about (included or excluded).
+    *   This section provides transparency into the filtering process.
+    *   Each entry follows the format: `- Status Type [Size: X.YKB]: path/to/item (Reason if excluded)`
+        *   `Status`: "Included" or "Excluded".
+        *   `Type`: "File" or "Folder".
+        *   `Size`: Approximate size in kilobytes.
+        *   `path/to/item`: Relative path to the item.
+        *   `(Reason if excluded)`: If the item was excluded, the reason is provided (e.g., "Matches default ignore pattern", "Exceeds max size", "Is a hidden file").
+    *   The order of items in this log can be controlled using the `--sort-output-log-by` CLI option.
+4.  **Contents:** For each included file, its relative path is listed as a sub-header, followed by its content enclosed in a fenced code block (e.g., ```python ... ```). The language hint for the code block is derived from the file extension.
+
+### JSON Format
+
+The JSON output provides a structured representation of the digest, suitable for programmatic access. The top-level JSON object contains:
+
+*   `metadata`: An object with overall information:
+    *   `tool_version`: Version of `dirdigest`.
+    *   `created_at`: ISO 8601 timestamp of when the digest was generated.
+    *   `base_directory`: Absolute path to the processed base directory.
+    *   `included_files_count`: Number of files included in the digest content.
+    *   `excluded_items_count`: Number of items (files or directories) excluded by filters or errors.
+    *   `total_content_size_kb`: Total size of content from included files in kilobytes.
+    *   `sort_options_used`: (New) A list of strings indicating the sort keys applied to the `processing_log` (e.g., `["status", "size"]`).
+*   `root`: An object representing the root of the processed directory. This is a hierarchical tree structure containing only *included* files and the directories that lead to them. Each node in the tree has:
+    *   `relative_path`: Path relative to the `base_directory`.
+    *   `type`: "folder" or "file".
+    *   `children`: (For folders) A list of child nodes.
+    *   `size_kb`: (For files) Size in kilobytes.
+    *   `content`: (For files, if not an error) The content of the file.
+    *   `read_error`: (For files, if applicable) A string describing any error encountered while trying to read the file.
+*   `processing_log`: (New) An array of objects, where each object represents an item (file or directory) processed by `dirdigest`. This list includes both included and excluded items and provides details similar to the Markdown "Processing Log":
+    *   `path`: Relative path to the item.
+    *   `type`: "file" or "folder".
+    *   `status`: "included" or "excluded".
+    *   `size_kb`: Size in kilobytes.
+    *   `reason_excluded`: String explaining why an item was excluded, or `null` if included.
+    *   This list is sorted according to the `sort_options_used` specified in the metadata.
+
+## Development Setup
 
 ## Development Setup
 

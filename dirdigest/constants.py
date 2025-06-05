@@ -143,3 +143,6 @@ DEFAULT_IGNORE_PATTERNS = [
     "**/MANIFEST.MF",  # Java manifest files often in target/ or build/
     # Add any other project-specific or generally unwanted patterns here
 ]
+
+DEFAULT_SORT_ORDER = ["status", "size"]
+SORT_OPTIONS = ["status", "size", "path"]

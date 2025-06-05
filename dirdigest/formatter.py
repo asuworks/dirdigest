@@ -14,13 +14,23 @@ Metadata = Dict[str, Any]
 class BaseFormatter:
     """Base class for output formatters."""
 
-    def __init__(self, base_dir_path: Path, cli_metadata: Metadata):
+    def __init__(
+        self,
+        base_dir_path: Path,
+        root_node: DigestItemNode,
+        sorted_output_list: List[Dict[str, Any]],
+        cli_metadata: Metadata,
+    ):
         """
         Initialize the formatter.
-        cli_metadata contains stats collected by core.build_digest_tree
+        cli_metadata contains stats collected by core.build_digest_tree (now called final_metadata from core)
+        root_node is the hierarchical tree of included files.
+        sorted_output_list is the flat, sorted list of all processed items.
         """
         self.base_dir_path = base_dir_path
-        self.core_metadata = cli_metadata  # Metadata from build_digest_tree
+        self.root_node = root_node # Stored for direct use if needed, though format() takes it
+        self.sorted_output_list = sorted_output_list
+        self.core_metadata = cli_metadata # This is the metadata dict from build_digest_tree
         self.final_metadata: Metadata = self._prepare_final_metadata()
 
     def _prepare_final_metadata(self) -> Metadata:
@@ -32,7 +42,7 @@ class BaseFormatter:
         # base_directory is already in core_metadata
         return meta
 
-    def format(self, data_tree: DigestItemNode) -> str:
+    def format(self, data_tree: DigestItemNode) -> str: # data_tree is effectively self.root_node
         """
         Formats the data_tree into a string representation.
         data_tree is the root node from core.build_digest_tree.
@@ -122,12 +132,25 @@ class BaseFormatter:
 class JsonFormatter(BaseFormatter):
     """Formats the directory digest as JSON."""
 
-    def format(self, data_tree: DigestItemNode) -> str:
+    def __init__(
+        self,
+        base_dir_path: Path,
+        root_node: DigestItemNode,
+        sorted_output_list: List[Dict[str, Any]],
+        cli_metadata: Metadata,
+    ):
+        super().__init__(base_dir_path, root_node, sorted_output_list, cli_metadata)
+
+    def format(self, data_tree: DigestItemNode) -> str: # data_tree is self.root_node
         """
         Generates a JSON string representation of the directory digest.
         data_tree is the root_node from core.build_digest_tree.
         """
-        output_data = {"metadata": self.final_metadata, "root": data_tree}
+        output_data = {
+            "metadata": self.final_metadata,
+            "root": data_tree, # This is self.root_node
+            "processing_log": self.sorted_output_list,
+        }
 
         def default_serializer(obj):
             if isinstance(
@@ -144,7 +167,16 @@ class JsonFormatter(BaseFormatter):
 class MarkdownFormatter(BaseFormatter):
     """Formats the directory digest as Markdown."""
 
-    def format(self, data_tree: DigestItemNode) -> str:
+    def __init__(
+        self,
+        base_dir_path: Path,
+        root_node: DigestItemNode,
+        sorted_output_list: List[Dict[str, Any]],
+        cli_metadata: Metadata,
+    ):
+        super().__init__(base_dir_path, root_node, sorted_output_list, cli_metadata)
+
+    def format(self, data_tree: DigestItemNode) -> str: # data_tree is self.root_node
         """
         Generates a Markdown string representation of the directory digest.
         data_tree is the root_node from core.build_digest_tree.
@@ -167,16 +199,40 @@ class MarkdownFormatter(BaseFormatter):
         # The root node itself ('relative_path': '.') shouldn't have a prefix like '├──'
         # The _generate_directory_structure_string starts with the name of the node.
         # We need to pass the root node directly to the helper.
-        structure_lines = self._generate_directory_structure_string(data_tree)
+        structure_lines = self._generate_directory_structure_string(data_tree) # data_tree is self.root_node
         md_lines.append("\n```text")  # Use text to avoid markdown interpreting it
         md_lines.extend(structure_lines)
         md_lines.append("```\n")
         md_lines.append("\n---")
 
-        # 3. File Contents
+        # 3. Processing Log
+        md_lines.append("\n## Processing Log")
+        if not self.sorted_output_list:
+            md_lines.append("\n*No items processed or log is empty.*")
+        else:
+            md_lines.append("") # Ensure a blank line before list
+            for item in self.sorted_output_list:
+                status = item.get("status", "N/A").capitalize()
+                item_type = item.get("type", "N/A").capitalize()
+                path = item.get("path", "N/A")
+                size_kb = item.get("size_kb")
+
+                size_str = f"{size_kb:.1f}KB" if isinstance(size_kb, float) else "N/A"
+                # For folders with 0.0KB, let's show it as specified.
+                if item_type == "Folder" and size_kb == 0.0:
+                    size_str = "0.0KB"
+
+                log_line = f"- {status} {item_type} [Size: {size_str}]: `{path}`"
+                if item.get("reason_excluded"):
+                    log_line += f" ({item['reason_excluded']})"
+                md_lines.append(log_line)
+        md_lines.append("\n---")
+
+        # 4. File Contents
         md_lines.append("\n## Contents")
 
         collected_files: List[Dict[str, Any]] = []
+        # data_tree is self.root_node, which contains only included files
         self._collect_file_contents_for_markdown(data_tree, collected_files)
 
         if not collected_files:
