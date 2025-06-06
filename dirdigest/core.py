@@ -300,7 +300,7 @@ def prepare_output_list(
     output_list = []
     for rel_path, item_type, status, payload in processed_items_generator:
         item_dict = {
-            "path": rel_path, # pathlib.Path object
+            "path": str(rel_path), # Convert pathlib.Path object to string for stable sorting
             "type": item_type, # "file" or "folder"
             "status": status,  # "included" or "excluded"
             "size_kb": payload.get("size_kb", 0.0),
