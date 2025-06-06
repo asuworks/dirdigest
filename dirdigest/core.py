@@ -112,11 +112,7 @@ def process_directory_recursive(
                     )
 
                 if reason_dir_excluded:
-                    logger.info(
-                        f"[log.excluded]Excluded directory[/log.excluded]: "
-                        f"[log.path]{relative_dir_path_str}[/log.path] "
-                        f"([log.reason]{reason_dir_excluded}[/log.reason])"
-                    )
+                    # INFO log removed
                     stats["excluded_items_count"] += 1
                     yield (
                         relative_dir_path,
@@ -159,11 +155,7 @@ def process_directory_recursive(
                     reason_file_excluded = "Does not match any include pattern"
 
                 if reason_file_excluded:
-                    logger.info(
-                        f"[log.excluded]Excluded file[/log.excluded]: "
-                        f"[log.path]{relative_file_path_str}[/log.path] "
-                        f"([log.reason]{reason_file_excluded}[/log.reason])"
-                    )
+                    # INFO log removed
                     stats["excluded_items_count"] += 1
                     # Try to get size even for pattern-excluded files if possible
                     try:
@@ -190,11 +182,7 @@ def process_directory_recursive(
 
                     if file_size_bytes > max_size_bytes:
                         reason_max_size = f"Exceeds max size ({actual_size_kb:.1f}KB > {max_size_kb}KB)"
-                        logger.info(
-                            f"[log.excluded]Excluded file[/log.excluded]: "
-                            f"[log.path]{relative_file_path_str}[/log.path] "
-                            f"([log.reason]{reason_max_size}[/log.reason])"
-                        )
+                        # INFO log removed
                         stats["excluded_items_count"] += 1
                         yield (
                             relative_file_path,
@@ -224,11 +212,7 @@ def process_directory_recursive(
                         reason_os_error = (
                             f"OS read error (and ignore_errors=False): {e}"
                         )
-                        logger.info(
-                            f"[log.excluded]Excluded file[/log.excluded]: "
-                            f"[log.path]{relative_file_path_str}[/log.path] "
-                            f"([log.reason]{reason_os_error}[/log.reason])"
-                        )
+                        # INFO log removed
                         stats["excluded_items_count"] += 1
                         # Try to get size even for error-excluded files
                         try:
@@ -265,11 +249,7 @@ def process_directory_recursive(
                         reason_unicode_error = (
                             f"UnicodeDecodeError (and ignore_errors=False): {e}"
                         )
-                        logger.info(
-                            f"[log.excluded]Excluded file[/log.excluded]: "
-                            f"[log.path]{relative_file_path_str}[/log.path] "
-                            f"([log.reason]{reason_unicode_error}[/log.reason])"
-                        )
+                        # INFO log removed
                         stats["excluded_items_count"] += 1
                         try:
                             unicode_error_file_size_kb = round(file_path_obj.stat().st_size / 1024, 3)
@@ -298,12 +278,7 @@ def process_directory_recursive(
 
 
                 # If all checks passed and content (or error placeholder) is ready
-                logger.info(
-                    f"[log.included]Included file[/log.included]: "
-                    f"[log.path]{relative_file_path_str}[/log.path] "
-                    f"(Size: {file_attributes.get('size_kb', 0.0):.1f}KB "
-                    f"{', Read error: ' + file_attributes['read_error'] if file_attributes.get('read_error') else ''})"
-                )
+                # INFO log removed
                 stats["included_files_count"] += 1
                 yield (relative_file_path, "file", "included", file_attributes)
 
@@ -423,22 +398,16 @@ def prepare_output_list(
 
 def build_digest_tree(
     base_dir_path: pathlib.Path,
-    processed_items_generator: Generator[ProcessedItem, None, None],
-    initial_stats_from_traversal: TraversalStats, # Renamed for clarity
-    sort_options: List[str],
-) -> Tuple[DigestItemNode, List[Dict[str, Any]], Dict[str, Any]]:
+    # The generator is converted to a list in cli.py and then passed.
+    all_processed_items: List[ProcessedItemPayload], # Changed type to List[ProcessedItemPayload] as per previous definition, but should be List[ProcessedItem]
+                                                     # Correcting to List[ProcessedItem] which is Tuple[pathlib.Path, str, str, ProcessedItemPayload]
+    initial_stats_from_traversal: TraversalStats,
+) -> Tuple[DigestItemNode, Dict[str, Any]]: # No longer returns sorted_output_list
     """
-    Builds the hierarchical tree structure for included files,
-    prepares a sorted list of all processed items (including excluded ones),
-    and compiles final metadata.
+    Builds the hierarchical tree structure for included files and compiles final metadata.
+    The `all_processed_items` list is expected to be pre-populated (e.g., from `process_directory_recursive`).
+    Sorting for the "Processing Log" is now handled by `prepare_output_list` called directly from `cli.py`.
     """
-    # Consume generator once to get all items. This list will be used multiple times.
-    all_processed_items = list(processed_items_generator)
-
-    # Prepare the detailed, sorted list of all items (including excluded)
-    # This now uses the `all_processed_items` list instead of consuming the generator directly
-    sorted_output_list = prepare_output_list(iter(all_processed_items), sort_options)
-
     root_node: DigestItemNode = {"relative_path": ".", "type": "folder", "children": []}
     actual_included_files_count = 0
     actual_excluded_items_count = 0
@@ -510,17 +479,19 @@ def build_digest_tree(
     sort_children_recursive(root_node)
 
     # Verify counts from all_processed_items against initial_stats for robustness if desired
-    # logger.debug(f"Initial stats from traversal: {initial_stats_from_traversal}")
-    # logger.debug(f"Recalculated included files: {actual_included_files_count}, Recalculated excluded items: {actual_excluded_items_count}")
+    # logger.debug(f"Initial stats from traversal: {initial_stats_from_traversal}") # initial_stats can be used or overridden
+    # logger.debug(f"Recalculated included files from all_processed_items: {actual_included_files_count}")
+    # logger.debug(f"Recalculated excluded items from all_processed_items: {actual_excluded_items_count}")
 
     # Prepare final metadata for output formatters
+    # Counts are now based on iterating `all_processed_items`.
     final_metadata = {
         "base_directory": str(base_dir_path.resolve()),
-        "included_files_count": actual_included_files_count, # Derived from iterating all_processed_items
-        "excluded_items_count": actual_excluded_items_count, # Derived from iterating all_processed_items
+        "included_files_count": actual_included_files_count,
+        "excluded_items_count": actual_excluded_items_count, # This count is from iterating all_processed_items
         "total_content_size_kb": round(current_total_content_size_kb, 3),
-        "sort_options_used": sort_options, # Add the sort options used
+        # "sort_options_used" is removed from here, will be added by cli.py to the metadata given to formatter
     }
     logger.debug(f"Core: build_digest_tree returning metadata: {final_metadata}")
 
-    return root_node, sorted_output_list, final_metadata
+    return root_node, final_metadata

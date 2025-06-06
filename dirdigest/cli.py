@@ -302,32 +302,81 @@ def main_cli(
         ignore_read_errors=final_ignore_errors,
     )
 
+    all_processed_items = list(processed_items_generator)
+
+    # Prepare sorted list for console logging
+    # Note: final_sort_output_log_by is already defined and defaulted earlier
+    sorted_items_for_console = core.prepare_output_list(iter(all_processed_items), final_sort_output_log_by)
+
+    # Print Sorted Console Log (if verbosity allows for INFO)
+    if log.isEnabledFor(logging.INFO):
+        log.info("--- Detailed Processing Log ---")
+        previous_item_status = None
+
+        # Determine if a separator is needed for console output
+        separator_needed_for_console = False
+        if final_sort_output_log_by:
+            if final_sort_output_log_by[0] == 'status' or \
+               final_sort_output_log_by == ['size'] or \
+               final_sort_output_log_by == ['status', 'size']:
+                separator_needed_for_console = True
+
+        has_any_excluded = any(item['status'] == 'excluded' for item in sorted_items_for_console)
+
+        for item in sorted_items_for_console:
+            status_str = item['status'].capitalize()
+            type_str = item['type'].capitalize()
+            size_val = item['size_kb']
+            # Ensure folders show 0.0KB or as desired, files show their size
+            size_display = f"{size_val:.1f}KB" if isinstance(size_val, float) else "N/A"
+            if item['type'] == 'folder' and size_val == 0.0 : # Explicitly show 0.0KB for folders
+                size_display = "0.0KB"
+
+            path_str = str(item['path'])
+            reason_str = f" ({item['reason_excluded']})" if item.get('reason_excluded') else ""
+            log_line = f"{status_str} {type_str} [Size: {size_display}]: {escape(path_str)}{escape(reason_str)}" # Escape path and reason
+
+            current_item_status = item['status']
+            if separator_needed_for_console and \
+               current_item_status == 'included' and \
+               previous_item_status == 'excluded' and \
+               has_any_excluded: # Only add separator if there were excluded items
+                log.info("---")  # Visual separator
+
+            log.info(log_line)
+            previous_item_status = current_item_status
+        log.info("--- End Detailed Processing Log ---")
+
     log.info("CLI: Building digest tree...")
-    root_node, sorted_log_items, metadata_for_output = core.build_digest_tree(
+    # build_digest_tree now takes all_processed_items and returns only root_node, metadata_for_output
+    root_node, metadata_for_output = core.build_digest_tree(
         base_dir_path=final_directory,
-        processed_items_generator=processed_items_generator,
-        initial_stats_from_traversal=stats_from_core, # This is the original stats from process_directory_recursive
-        sort_options=final_sort_output_log_by
+        all_processed_items=all_processed_items,
+        initial_stats_from_traversal=stats_from_core
     )
     log.debug(
         f"CLI: Digest tree built. Root node children: {len(root_node.get('children', []))}"
     )
-    log.debug(f"CLI: Sorted log items count: {len(sorted_log_items)}")
-    log.debug(f"CLI: Metadata for output: {metadata_for_output}")
+    # metadata_for_output no longer contains sorted_log_items or sort_options_used from core.py
+    log.debug(f"CLI: Metadata for output from core: {metadata_for_output}")
+
+    # Add sort_options_used to metadata for summary and potentially for formatter if needed by a specific format.
+    # However, formatters are now reverted to not use it.
+    # This is mainly for the console summary.
+    metadata_for_output_with_sort_info = metadata_for_output.copy()
+    metadata_for_output_with_sort_info['sort_options_used'] = final_sort_output_log_by
+
 
     selected_formatter: dirdigest_formatter.BaseFormatter
     if final_format.lower() == "json":
         selected_formatter = dirdigest_formatter.JsonFormatter(
             base_dir_path=final_directory,
-            root_node=root_node,
-            sorted_output_list=sorted_log_items,
+            # Pass the original metadata_for_output without sort info for the digest file itself
             cli_metadata=metadata_for_output
         )
     elif final_format.lower() == "markdown":
         selected_formatter = dirdigest_formatter.MarkdownFormatter(
             base_dir_path=final_directory,
-            root_node=root_node,
-            sorted_output_list=sorted_log_items,
             cli_metadata=metadata_for_output
         )
     else:
@@ -470,11 +519,11 @@ def main_cli(
     # --- Clipboard --- END ---
 
     execution_time = time.monotonic() - start_time
-    inc_count = metadata_for_output.get("included_files_count", 0)
-    exc_count = metadata_for_output.get(
-        "excluded_items_count", 0
-    )  # Corrected key from stats_from_core
-    total_size = metadata_for_output.get("total_content_size_kb", 0.0)
+    # Use metadata_for_output_with_sort_info for summary logging
+    inc_count = metadata_for_output_with_sort_info.get("included_files_count", 0)
+    exc_count = metadata_for_output_with_sort_info.get("excluded_items_count", 0)
+    total_size = metadata_for_output_with_sort_info.get("total_content_size_kb", 0.0)
+    sort_options_display = metadata_for_output_with_sort_info.get("sort_options_used", "N/A")
 
     approx_tokens = 0
     if (
@@ -491,6 +540,9 @@ def main_cli(
     )
     log.info(
         f"[log.summary_key]Total content size:[/log.summary_key] [log.summary_value_neutral]{total_size:.2f} KB[/log.summary_value_neutral]"
+    )
+    log.info(
+        f"[log.summary_key]Sort options used:[/log.summary_key] [log.summary_value_neutral]{sort_options_display}[/log.summary_value_neutral]"
     )
     log.info(
         f"[log.summary_key]Approx. Token Count:[/log.summary_key] [log.summary_value_neutral]{approx_tokens:,}[/log.summary_value_neutral]"

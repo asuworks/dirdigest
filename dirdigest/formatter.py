@@ -14,23 +14,15 @@ Metadata = Dict[str, Any]
 class BaseFormatter:
     """Base class for output formatters."""
 
-    def __init__(
-        self,
-        base_dir_path: Path,
-        root_node: DigestItemNode,
-        sorted_output_list: List[Dict[str, Any]],
-        cli_metadata: Metadata,
-    ):
+    def __init__(self, base_dir_path: Path, cli_metadata: Metadata):
         """
         Initialize the formatter.
-        cli_metadata contains stats collected by core.build_digest_tree (now called final_metadata from core)
-        root_node is the hierarchical tree of included files.
-        sorted_output_list is the flat, sorted list of all processed items.
+        cli_metadata contains stats collected by core.build_digest_tree
         """
         self.base_dir_path = base_dir_path
-        self.root_node = root_node # Stored for direct use if needed, though format() takes it
-        self.sorted_output_list = sorted_output_list
-        self.core_metadata = cli_metadata # This is the metadata dict from build_digest_tree
+        # self.root_node is no longer stored here, passed to format()
+        # self.sorted_output_list is removed
+        self.core_metadata = cli_metadata  # This is the metadata dict from build_digest_tree (or cli.py)
         self.final_metadata: Metadata = self._prepare_final_metadata()
 
     def _prepare_final_metadata(self) -> Metadata:
@@ -132,25 +124,15 @@ class BaseFormatter:
 class JsonFormatter(BaseFormatter):
     """Formats the directory digest as JSON."""
 
-    def __init__(
-        self,
-        base_dir_path: Path,
-        root_node: DigestItemNode,
-        sorted_output_list: List[Dict[str, Any]],
-        cli_metadata: Metadata,
-    ):
-        super().__init__(base_dir_path, root_node, sorted_output_list, cli_metadata)
+    def __init__(self, base_dir_path: Path, cli_metadata: Metadata):
+        super().__init__(base_dir_path, cli_metadata)
 
-    def format(self, data_tree: DigestItemNode) -> str: # data_tree is self.root_node
+    def format(self, data_tree: DigestItemNode) -> str:
         """
         Generates a JSON string representation of the directory digest.
         data_tree is the root_node from core.build_digest_tree.
         """
-        output_data = {
-            "metadata": self.final_metadata,
-            "root": data_tree, # This is self.root_node
-            "processing_log": self.sorted_output_list,
-        }
+        output_data = {"metadata": self.final_metadata, "root": data_tree}
 
         def default_serializer(obj):
             if isinstance(
@@ -167,16 +149,10 @@ class JsonFormatter(BaseFormatter):
 class MarkdownFormatter(BaseFormatter):
     """Formats the directory digest as Markdown."""
 
-    def __init__(
-        self,
-        base_dir_path: Path,
-        root_node: DigestItemNode,
-        sorted_output_list: List[Dict[str, Any]],
-        cli_metadata: Metadata,
-    ):
-        super().__init__(base_dir_path, root_node, sorted_output_list, cli_metadata)
+    def __init__(self, base_dir_path: Path, cli_metadata: Metadata):
+        super().__init__(base_dir_path, cli_metadata)
 
-    def format(self, data_tree: DigestItemNode) -> str: # data_tree is self.root_node
+    def format(self, data_tree: DigestItemNode) -> str:
         """
         Generates a Markdown string representation of the directory digest.
         data_tree is the root_node from core.build_digest_tree.
@@ -205,52 +181,7 @@ class MarkdownFormatter(BaseFormatter):
         md_lines.append("```\n")
         md_lines.append("\n---")
 
-        # 3. Processing Log
-        md_lines.append("\n## Processing Log")
-        if not self.sorted_output_list:
-            md_lines.append("\n*No items processed or log is empty.*")
-        else:
-            md_lines.append("")  # Ensure a blank line before list
-
-            sort_options_used = self.core_metadata.get("sort_options_used", [])
-            # Determine if a separator is needed based on primary status grouping
-            needs_separator_between_status_groups = False
-            if sort_options_used:
-                # Check if 'status' is the first sort option, or if the logic for 'size' implies status grouping
-                # The revised logic for ['size'] in core.py sorts by status first.
-                if sort_options_used[0] == 'status' or sort_options_used == ['size'] or sort_options_used == ['status', 'size']:
-                    needs_separator_between_status_groups = True
-
-            previous_item_status_for_separator = None
-            for item in self.sorted_output_list:
-                current_item_status = item.get("status") # "included" or "excluded"
-
-                if needs_separator_between_status_groups and \
-                   current_item_status == "included" and \
-                   previous_item_status_for_separator == "excluded":
-                    # Check if there were any excluded items to ensure separator is meaningful
-                    if any(i.get("status") == "excluded" for i in self.sorted_output_list):
-                         md_lines.append("\n---\n") # Add separator line
-
-                status_display = current_item_status.capitalize() if current_item_status else "N/A"
-                item_type = item.get("type", "N/A").capitalize()
-                path = item.get("path", "N/A") # This is a pathlib.Path object
-                size_kb = item.get("size_kb")
-
-                size_str = f"{size_kb:.1f}KB" if isinstance(size_kb, float) else "N/A"
-                if item_type == "Folder" and size_kb == 0.0: # Ensure 0.0KB is shown for folders
-                    size_str = "0.0KB"
-
-                log_line = f"- {status_display} {item_type} [Size: {size_str}]: `{str(path)}`" # Convert path to string for display
-                if item.get("reason_excluded"):
-                    log_line += f" ({item['reason_excluded']})"
-                md_lines.append(log_line)
-
-                previous_item_status_for_separator = current_item_status
-
-        md_lines.append("\n---") # This is the separator after the whole log section
-
-        # 4. File Contents
+        # 3. File Contents
         md_lines.append("\n## Contents")
 
         collected_files: List[Dict[str, Any]] = []

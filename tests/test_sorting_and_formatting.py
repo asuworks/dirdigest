@@ -1,6 +1,7 @@
 import json
 import pathlib
 import pytest
+import logging # Added for caplog
 from click.testing import CliRunner
 
 from dirdigest.cli import main_cli
@@ -25,111 +26,41 @@ def test_dir_structure(tmp_path: pathlib.Path) -> pathlib.Path:
         "file_beta_large.txt": "beta content " * 200,  # 2600 bytes (2.5KB)
         "sub_dir/file_gamma.py": "print('gamma')",  # 13 bytes
         "sub_dir/file_delta_small.md": "# delta",  # 7 bytes
-        "sub_dir_empty/": {}, # Empty directory
-        ".ignored_hidden.txt": "hidden data",  # 11 bytes, excluded (hidden)
-        "node_modules/lib.js": "some js code",  # 12 bytes, excluded (default pattern for node_modules dir)
-        # Make big_file.log excluded by pattern first, then by size if pattern was missed.
-        # Default ignore patterns include "*.log"
-        "temp_files/big_file.log": "log" * 102401,  # 307203 bytes (300.0KB), excluded by pattern
-        "temp_files/another_big_file.data": "d" * (301 * 1024)  # 308224 bytes (301.0KB), excluded by size
+        "sub_dir_empty/": {},
+        ".ignored_hidden.txt": "hidden data",  # 11 bytes
+        "node_modules/lib.js": "some js code", # 12 bytes (dir excluded)
+        "temp_files/big_file.log": "log" * 102401,  # 300.0KB
+        "temp_files/another_big_file.data": "d" * (301 * 1024)  # 301.0KB
     }
     create_test_files(base, structure)
     (base / "sub_dir_empty").mkdir(parents=True, exist_ok=True)
     return base
 
-# run_dirdigest_and_parse_output: crucial change to return all_md_lines for separator check
-def run_dirdigest_and_parse_output(
-    runner: CliRunner, command_args: list[str], project_dir: pathlib.Path
-) -> tuple[dict | None, list[str] | None, list[str] | None]: # Added list[str] for all_md_lines
-    full_command = ["--config", "non_existent_config.toml"] + command_args
-    if project_dir:
-        full_command = [str(project_dir)] + full_command
-
-
-    result = runner.invoke(main_cli, full_command, catch_exceptions=False)
-    assert result.exit_code == 0, f"Dirdigest CLI failed. Output:\n{result.output}\nStderr:\n{result.stderr}"
-
-    output_content = result.stdout
-
-    parsed_json = None
-    markdown_log_lines = [] # Store parsed - item lines
-    all_markdown_lines_in_log_section = [] # Store all lines in log section including separators
-
-    if "--format" in command_args and "json" in command_args[command_args.index("--format") + 1]:
-        try:
-            parsed_json = json.loads(output_content)
-        except json.JSONDecodeError:
-            pytest.fail(f"Failed to parse JSON output: {output_content}")
-        # For JSON, we don't populate markdown_log_lines or all_markdown_lines_in_log_section
-        return parsed_json, None, None
-    else: # Markdown by default
-        raw_md_lines = output_content.splitlines()
-        in_processing_log_section = False
-        for line_num, line_content in enumerate(raw_md_lines):
-            stripped_line = line_content.strip()
-            if stripped_line == "## Processing Log":
-                in_processing_log_section = True
-                continue
-            if in_processing_log_section:
-                all_markdown_lines_in_log_section.append(stripped_line) # Add raw line
-                if stripped_line.startswith("- "):
-                    markdown_log_lines.append(stripped_line) # Add parsed item line
-                # Check if this is the final "---" that ends the Processing Log section
-                # This assumes the "---" after the log is the immediate next non-empty line or specific structure
-                # For simplicity, let's assume the section ends if we see "---" and it's not part of an item,
-                # or if we hit another "##" section header.
-                if stripped_line == "---" and (line_num + 1 < len(raw_md_lines) and raw_md_lines[line_num+1].strip().startswith("## ")):
-                    all_markdown_lines_in_log_section.pop() # Remove this final "---" as it's a section ender
-                    break
-                if stripped_line.startswith("## ") and stripped_line != "## Processing Log": # Next section started
-                    if all_markdown_lines_in_log_section and all_markdown_lines_in_log_section[-1] == "---":
-                         all_markdown_lines_in_log_section.pop() # Remove trailing separator if it's the last thing before next heading
-                    break
-        # Remove trailing "---" if it's the last line captured and it's the section ender
-        if all_markdown_lines_in_log_section and all_markdown_lines_in_log_section[-1] == "---":
-            is_last_line_section_ender = True
-            # Heuristic: if the line after "---" in original output is a new section or empty then it's an ender
-            original_index_of_this_line = -1
-            temp_line_counter = 0
-            in_temp_section = False
-            for i, l_content in enumerate(output_content.splitlines()):
-                s_line = l_content.strip()
-                if s_line == "## Processing Log": in_temp_section = True; continue
-                if in_temp_section:
-                    temp_line_counter +=1
-                    if temp_line_counter == len(all_markdown_lines_in_log_section): # this '---' is the one in question
-                        original_index_of_this_line = i
-                        break
-            if original_index_of_this_line != -1 and original_index_of_this_line + 1 < len(output_content.splitlines()):
-                next_original_line = output_content.splitlines()[original_index_of_this_line+1].strip()
-                if next_original_line.startswith("## ") or not next_original_line:
-                    all_markdown_lines_in_log_section.pop()
-            elif original_index_of_this_line != -1 and original_index_of_this_line + 1 == len(output_content.splitlines()): # last line
-                 all_markdown_lines_in_log_section.pop()
-
-
-    return parsed_json, markdown_log_lines, all_markdown_lines_in_log_section
-
-
-# Helper to extract relevant parts (same as before)
-def parse_log_line(log_line: str) -> dict:
+# parse_log_line helper remains mostly the same, but input is now a direct log message
+def parse_console_log_line(log_line: str) -> dict:
     parts = {}
-    status_type_part = log_line[2:].split(" [Size:", 1)[0]
-    parts["status"] = status_type_part.split(" ", 1)[0]
-    parts["type"] = status_type_part.split(" ", 1)[1]
+    # Example: "Included File [Size: 0.0KB]: file_alpha.txt"
+    # Example: "Excluded Folder [Size: 0.0KB]: node_modules (Matches default ignore pattern)"
+
+    # Status and Type from the start of the string
+    # log_line format: "{Status} {Type} [Size: {SizeDisplay}]: {Path}{Reason}"
+
+    first_bracket = log_line.find(" [Size:")
+    status_type_str = log_line[:first_bracket]
+    parts["status"], parts["type"] = status_type_str.split(" ", 1)
 
     try:
         size_str = log_line.split("[Size: ", 1)[1].split("KB]", 1)[0]
         parts["size_kb"] = float(size_str) if size_str != "N/A" else 0.0
-    except IndexError:
+    except IndexError: # Should not happen if format is consistent
         parts["size_kb"] = 0.0
 
     path_part_full = log_line.split("]: ", 1)[1]
     if " (" in path_part_full:
-        parts["path"] = path_part_full.split(" (", 1)[0].strip("`")
+        parts["path"] = path_part_full.split(" (", 1)[0] # No backticks in console log
         parts["reason"] = path_part_full.split(" (", 1)[1].rstrip(")")
     else:
-        parts["path"] = path_part_full.strip("`")
+        parts["path"] = path_part_full
         parts["reason"] = None
     return parts
 
@@ -137,130 +68,164 @@ def assert_log_item_details(actual_item, expected_item, item_index, sort_desc=""
     assert actual_item['status'] == expected_item['status'], f"Item {item_index} status mismatch for {expected_item['path']} ({sort_desc})"
     assert actual_item['type'] == expected_item['type'], f"Item {item_index} type mismatch for {expected_item['path']} ({sort_desc})"
     assert actual_item['path'] == expected_item['path'], f"Item {item_index} path mismatch. Expected {expected_item['path']}, Got {actual_item['path']} ({sort_desc})"
-    if actual_item['type'] == 'File':
+    if actual_item['type'] == 'File': # Only check size for files for precision
         assert abs(actual_item['size_kb'] - expected_item.get('size_kb', 0.0)) < 0.01, \
             f"Item {item_index} size mismatch for {expected_item['path']}. Expected {expected_item.get('size_kb', 0.0)}, Got {actual_item['size_kb']} ({sort_desc})"
-    if 'reason' in expected_item:
-        assert actual_item.get('reason') == expected_item.get('reason'), f"Item {item_index} reason mismatch for {expected_item['path']} ({sort_desc})"
+    if 'reason' in expected_item: # Only check reason if specified in expected
+        assert actual_item.get('reason') == expected_item.get('reason'), f"Item {item_index} reason mismatch for {expected_item['path']}"
 
-def check_separator_logic(all_log_section_lines: list[str], expect_separator: bool, sort_desc: str):
-    has_excluded = any(line.startswith("- Excluded") for line in all_log_section_lines)
-    has_included = any(line.startswith("- Included") for line in all_log_section_lines)
+def get_detailed_console_log(caplog_text: str) -> list[str]:
+    lines = caplog_text.splitlines()
+    detailed_log_lines = []
+    in_detailed_log_section = False
+    for line in lines:
+        # Assuming standard log format: "timestamp LEVEL logger: message"
+        # We only care about the message part from our logger
+        if "dirdigest.cli" not in line and "dirdigest.core" not in line : # Filter out other loggers if any
+            if "--- Detailed Processing Log ---" in line or "--- End Detailed Processing Log ---" in line or "---" == line.strip():
+                 # these are direct messages
+                 pass
+            else: # skip non-dirdigest logs unless they are our specific markers
+                continue
 
-    separator_found_correctly = False
-    if expect_separator and has_excluded and has_included:
-        for i in range(len(all_log_section_lines) - 1):
-            if all_log_section_lines[i].startswith("- Excluded") and \
-               all_log_section_lines[i+1] == "---" and \
-               (i+2 < len(all_log_section_lines) and all_log_section_lines[i+2].startswith("- Included")):
-                separator_found_correctly = True
-                break
-        assert separator_found_correctly, f"Separator '---' was EXPECTED but not found correctly between Excluded and Included groups for {sort_desc}."
-    elif not expect_separator:
-        incorrect_separator_found = False
-        for i in range(len(all_log_section_lines) - 1):
-            if all_log_section_lines[i].startswith("- Excluded") and \
-               all_log_section_lines[i+1] == "---" and \
-               (i+2 < len(all_log_section_lines) and all_log_section_lines[i+2].startswith("- Included")):
-                incorrect_separator_found = True
-                break
-        assert not incorrect_separator_found, f"Separator '---' was NOT EXPECTED but found between Excluded and Included groups for {sort_desc}."
+        message_part = line.split(":", 3)[-1].strip() if ":" in line else line.strip()
 
+        if message_part == "--- Detailed Processing Log ---":
+            in_detailed_log_section = True
+            continue
+        if message_part == "--- End Detailed Processing Log ---":
+            break
+        if in_detailed_log_section:
+            detailed_log_lines.append(message_part) # This includes '---' separators
+    return detailed_log_lines
+
+def check_console_separator_logic(console_log_lines: list[str], expect_separator: bool, sort_desc: str):
+    # console_log_lines are the raw messages within the "Detailed Processing Log" block
+    item_lines = [line for line in console_log_lines if line != "---"]
+    has_excluded = any(item.startswith("Excluded") for item in item_lines)
+    has_included = any(item.startswith("Included") for item in item_lines)
+
+    separator_is_present = False
+    if has_excluded and has_included:
+        for i in range(len(console_log_lines) - 1):
+            # Check for a "---" line that is between an Excluded item line and an Included item line
+            if console_log_lines[i].startswith("Excluded") and \
+               console_log_lines[i+1] == "---":
+                if (i+2 < len(console_log_lines) and console_log_lines[i+2].startswith("Included")):
+                    separator_is_present = True
+                    break
+
+    if expect_separator:
+        if not (has_excluded and has_included): # Separator not expected if only one group type exists
+             assert not separator_is_present, f"Separator '---' present for {sort_desc}, but not expected as only one status group exists."
+        else:
+            assert separator_is_present, f"Separator '---' was EXPECTED but not found correctly for {sort_desc}."
+    else: # Not expecting separator
+        assert not separator_is_present, f"Separator '---' was NOT EXPECTED but found for {sort_desc}."
 
 # --- Test Cases ---
 
-def test_default_sort_order_and_format_markdown(runner: CliRunner, test_dir_structure: pathlib.Path):
-    """Test default sort order (status, size) and Markdown format. Expect separator."""
-    _, parsed_log_lines, all_log_section_lines = run_dirdigest_and_parse_output(
-        runner, ["--no-clipboard"], test_dir_structure
-    )
-    assert parsed_log_lines is not None
-    assert all_log_section_lines is not None
-    parsed_log_items = [parse_log_line(line) for line in parsed_log_lines]
+def run_cli_and_get_console_log(runner: CliRunner, caplog, project_dir: pathlib.Path, cli_args: list[str], output_file_name: str | None = None) -> tuple[list[str], str | None]:
+    caplog.set_level(logging.INFO)
 
-    # Default sort: ['status', 'size'] -> Excluded first, then type (folder), then path for folders / -size,path for files
-    expected_items = [
-        {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'size_kb':0.0, 'reason': 'Matches default ignore pattern'},
+    full_command = [str(project_dir), "--config", "non_existent_config.toml", "--no-clipboard"] + cli_args
+    if output_file_name:
+        full_command.extend(["-o", output_file_name])
+
+    result = runner.invoke(main_cli, full_command, catch_exceptions=False)
+    assert result.exit_code == 0, f"CLI failed for {cli_args}. Output:\n{result.output}\nStderr:\n{result.stderr}"
+
+    console_log_items = get_detailed_console_log(caplog.text)
+
+    file_content = None
+    if output_file_name:
+        output_path = project_dir / output_file_name
+        assert output_path.exists()
+        file_content = output_path.read_text()
+        # Assert no processing log in file
+        if "--format" in cli_args and "json" in cli_args: # JSON
+            data = json.loads(file_content)
+            assert "processing_log" not in data
+            assert "sort_options_used" not in data["metadata"] # Should be added by CLI for summary, not for file metadata
+        else: # Markdown
+            assert "## Processing Log" not in file_content
+            assert "Detailed Processing Log" not in file_content # Check console markers aren't in file
+
+    return console_log_items, file_content
+
+
+def test_default_sort_console_log_and_markdown_file(runner: CliRunner, caplog, test_dir_structure: pathlib.Path):
+    console_log_lines, md_content = run_cli_and_get_console_log(runner, caplog, test_dir_structure, [], "digest.md")
+
+    item_lines = [line for line in console_log_lines if line != "---"]
+    parsed_console_items = [parse_console_log_line(line) for line in item_lines]
+
+    expected_console_items = [
+        {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'reason': 'Matches default ignore pattern'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'size_kb': 301.0, 'reason': 'Exceeds max size (301.0KB > 300KB)'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'size_kb': 300.0, 'reason': 'Matches default ignore pattern'},
         {'status': 'Excluded', 'type': 'File', 'path': '.ignored_hidden.txt', 'size_kb': 0.0, 'reason': 'Is a hidden file'},
-        # Separator expected here
-        {'status': 'Included', 'type': 'File', 'path': 'file_beta_large.txt', 'size_kb': 2.5},
-        {'status': 'Included', 'type': 'File', 'path': 'file_alpha.txt', 'size_kb': 0.0}, # 13 bytes
-        {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_delta_small.md', 'size_kb': 0.0}, # 7 bytes
-        {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_gamma.py', 'size_kb': 0.0}, # 13 bytes
-    ]
-    assert len(parsed_log_items) == len(expected_items)
-    for i, actual in enumerate(parsed_log_items):
-        assert_log_item_details(actual, expected_items[i], i, "default sort")
-    check_separator_logic(all_log_section_lines, expect_separator=True, sort_desc="default sort")
-
-
-def test_sort_by_size_markdown(runner: CliRunner, test_dir_structure: pathlib.Path):
-    """Test '--sort-output-log-by size'. Expect separator as status is primary implicit key."""
-    _, parsed_log_lines, all_log_section_lines = run_dirdigest_and_parse_output(
-        runner, ["--sort-output-log-by", "size", "--no-clipboard"], test_dir_structure
-    )
-    assert parsed_log_lines is not None
-    assert all_log_section_lines is not None
-    parsed_log_items = [parse_log_line(line) for line in parsed_log_lines]
-
-    # Sort: ['size'] -> Status, Type, then Path for Folders / -Size,Path for Files
-    expected_items = [
-        {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'size_kb':0.0, 'reason': 'Matches default ignore pattern'},
-        {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'size_kb': 301.0, 'reason': 'Exceeds max size (301.0KB > 300KB)'},
-        {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'size_kb': 300.0, 'reason': 'Matches default ignore pattern'},
-        {'status': 'Excluded', 'type': 'File', 'path': '.ignored_hidden.txt', 'size_kb': 0.0, 'reason': 'Is a hidden file'},
-        # Separator expected here
         {'status': 'Included', 'type': 'File', 'path': 'file_beta_large.txt', 'size_kb': 2.5},
         {'status': 'Included', 'type': 'File', 'path': 'file_alpha.txt', 'size_kb': 0.0},
         {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_delta_small.md', 'size_kb': 0.0},
         {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_gamma.py', 'size_kb': 0.0},
     ]
-    assert len(parsed_log_items) == len(expected_items)
-    for i, actual in enumerate(parsed_log_items):
-        assert_log_item_details(actual, expected_items[i], i, "sort by size")
-    check_separator_logic(all_log_section_lines, expect_separator=True, sort_desc="sort by size")
+    assert len(parsed_console_items) == len(expected_console_items)
+    for i, actual in enumerate(parsed_console_items):
+        assert_log_item_details(actual, expected_console_items[i], i, "default console sort")
+    check_console_separator_logic(console_log_lines, expect_separator=True, sort_desc="default console sort")
+    assert md_content is not None
+    assert "## Processing Log" not in md_content
 
 
-def test_sort_by_status_path_markdown(runner: CliRunner, test_dir_structure: pathlib.Path):
-    """Test '--sort-output-log-by status --sort-output-log-by path'. Expect separator."""
-    _, parsed_log_lines, all_log_section_lines = run_dirdigest_and_parse_output(
-        runner, ["--sort-output-log-by", "status", "--sort-output-log-by", "path", "--no-clipboard"], test_dir_structure
-    )
-    assert parsed_log_lines is not None
-    assert all_log_section_lines is not None
-    parsed_log_items = [parse_log_line(line) for line in parsed_log_lines]
+def test_sort_by_size_console_log(runner: CliRunner, caplog, test_dir_structure: pathlib.Path):
+    console_log_lines, _ = run_cli_and_get_console_log(runner, caplog, test_dir_structure, ["--sort-output-log-by", "size"])
+    item_lines = [line for line in console_log_lines if line != "---"]
+    parsed_console_items = [parse_console_log_line(line) for line in item_lines]
 
-    # Sort: ['status', 'path'] -> Status, Type, Path
-    expected_items = [
+    expected_items = [ # Same as default: status, type, then -size/path
+        {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'reason': 'Matches default ignore pattern'},
+        {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'size_kb': 301.0, 'reason': 'Exceeds max size (301.0KB > 300KB)'},
+        {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'size_kb': 300.0, 'reason': 'Matches default ignore pattern'},
+        {'status': 'Excluded', 'type': 'File', 'path': '.ignored_hidden.txt', 'size_kb': 0.0, 'reason': 'Is a hidden file'},
+        {'status': 'Included', 'type': 'File', 'path': 'file_beta_large.txt', 'size_kb': 2.5},
+        {'status': 'Included', 'type': 'File', 'path': 'file_alpha.txt', 'size_kb': 0.0},
+        {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_delta_small.md', 'size_kb': 0.0},
+        {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_gamma.py', 'size_kb': 0.0},
+    ]
+    assert len(parsed_console_items) == len(expected_items)
+    for i, actual in enumerate(parsed_console_items):
+        assert_log_item_details(actual, expected_items[i], i, "console sort by size")
+    check_console_separator_logic(console_log_lines, expect_separator=True, sort_desc="console sort by size")
+
+
+def test_sort_by_status_path_console_log(runner: CliRunner, caplog, test_dir_structure: pathlib.Path):
+    console_log_lines, _ = run_cli_and_get_console_log(runner, caplog, test_dir_structure, ["--sort-output-log-by", "status", "--sort-output-log-by", "path"])
+    item_lines = [line for line in console_log_lines if line != "---"]
+    parsed_console_items = [parse_console_log_line(line) for line in item_lines]
+
+    expected_items = [ # Status, Type, Path
         {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'reason': 'Matches default ignore pattern'},
         {'status': 'Excluded', 'type': 'File', 'path': '.ignored_hidden.txt', 'reason': 'Is a hidden file'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'reason': 'Exceeds max size (301.0KB > 300KB)'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'reason': 'Matches default ignore pattern'},
-        # Separator expected here
         {'status': 'Included', 'type': 'File', 'path': 'file_alpha.txt'},
         {'status': 'Included', 'type': 'File', 'path': 'file_beta_large.txt'},
         {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_delta_small.md'},
         {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_gamma.py'},
     ]
-    assert len(parsed_log_items) == len(expected_items)
-    for i, actual in enumerate(parsed_log_items):
-        assert_log_item_details(actual, expected_items[i], i, "sort by status, path")
-    check_separator_logic(all_log_section_lines, expect_separator=True, sort_desc="sort by status, path")
+    assert len(parsed_console_items) == len(expected_items)
+    for i, actual in enumerate(parsed_console_items):
+        assert_log_item_details(actual, expected_items[i], i, "console sort by status, path")
+    check_console_separator_logic(console_log_lines, expect_separator=True, sort_desc="console sort by status, path")
 
 
-def test_sort_by_path_markdown(runner: CliRunner, test_dir_structure: pathlib.Path):
-    """Test '--sort-output-log-by path'. No status grouping, no separator expected between status groups."""
-    _, parsed_log_lines, all_log_section_lines = run_dirdigest_and_parse_output(
-        runner, ["--sort-output-log-by", "path", "--no-clipboard"], test_dir_structure
-    )
-    assert parsed_log_lines is not None
-    assert all_log_section_lines is not None
-    parsed_log_items = [parse_log_line(line) for line in parsed_log_lines]
+def test_sort_by_path_console_log(runner: CliRunner, caplog, test_dir_structure: pathlib.Path):
+    console_log_lines, _ = run_cli_and_get_console_log(runner, caplog, test_dir_structure, ["--sort-output-log-by", "path"])
+    item_lines = [line for line in console_log_lines if line != "---"]
+    parsed_console_items = [parse_console_log_line(line) for line in item_lines]
 
-    # Sort: ['path'] -> Path, Type
-    expected_items = [
+    expected_items = [ # Path, Type
         {'status': 'Excluded', 'type': 'File', 'path': '.ignored_hidden.txt', 'reason': 'Is a hidden file'},
         {'status': 'Included', 'type': 'File', 'path': 'file_alpha.txt'},
         {'status': 'Included', 'type': 'File', 'path': 'file_beta_large.txt'},
@@ -270,23 +235,18 @@ def test_sort_by_path_markdown(runner: CliRunner, test_dir_structure: pathlib.Pa
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'reason': 'Exceeds max size (301.0KB > 300KB)'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'reason': 'Matches default ignore pattern'},
     ]
-    assert len(parsed_log_items) == len(expected_items)
-    for i, actual in enumerate(parsed_log_items):
-        assert_log_item_details(actual, expected_items[i], i, "sort by path")
-    check_separator_logic(all_log_section_lines, expect_separator=False, sort_desc="sort by path")
+    assert len(parsed_console_items) == len(expected_items)
+    for i, actual in enumerate(parsed_console_items):
+        assert_log_item_details(actual, expected_items[i], i, "console sort by path")
+    check_console_separator_logic(console_log_lines, expect_separator=False, sort_desc="console sort by path")
 
 
-def test_sort_by_size_path_markdown(runner: CliRunner, test_dir_structure: pathlib.Path):
-    """Test '--sort-output-log-by size --sort-output-log-by path'. No status grouping, no separator."""
-    _, parsed_log_lines, all_log_section_lines = run_dirdigest_and_parse_output(
-        runner, ["--sort-output-log-by", "size", "--sort-output-log-by", "path", "--no-clipboard"], test_dir_structure
-    )
-    assert parsed_log_lines is not None
-    assert all_log_section_lines is not None
-    parsed_log_items = [parse_log_line(line) for line in parsed_log_lines]
+def test_sort_by_size_path_console_log(runner: CliRunner, caplog, test_dir_structure: pathlib.Path):
+    console_log_lines, _ = run_cli_and_get_console_log(runner, caplog, test_dir_structure, ["--sort-output-log-by", "size", "--sort-output-log-by", "path"])
+    item_lines = [line for line in console_log_lines if line != "---"]
+    parsed_console_items = [parse_console_log_line(line) for line in item_lines]
 
-    # Sort: ['size', 'path'] -> Type, then Path for Folders / -Size,Path for Files
-    expected_items = [
+    expected_items = [ # Type, then Path for Folders / -Size,Path for Files
         {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'reason': 'Matches default ignore pattern'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'size_kb': 301.0, 'reason': 'Exceeds max size (301.0KB > 300KB)'},
         {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'size_kb': 300.0, 'reason': 'Matches default ignore pattern'},
@@ -296,42 +256,42 @@ def test_sort_by_size_path_markdown(runner: CliRunner, test_dir_structure: pathl
         {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_delta_small.md', 'size_kb': 0.0},
         {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_gamma.py', 'size_kb': 0.0},
     ]
-    assert len(parsed_log_items) == len(expected_items)
-    for i, actual in enumerate(parsed_log_items):
-        assert_log_item_details(actual, expected_items[i], i, "sort by size, path")
-    check_separator_logic(all_log_section_lines, expect_separator=False, sort_desc="sort by size, path")
+    assert len(parsed_console_items) == len(expected_items)
+    for i, actual in enumerate(parsed_console_items):
+        assert_log_item_details(actual, expected_items[i], i, "console sort by size, path")
+    check_console_separator_logic(console_log_lines, expect_separator=False, sort_desc="console sort by size, path")
 
 
-def test_json_output_with_default_sort(runner: CliRunner, test_dir_structure: pathlib.Path):
-    """Test JSON output format with default sort. Checks metadata and processing_log order."""
-    parsed_json, _, _ = run_dirdigest_and_parse_output(
-        runner, ["--format", "json", "--no-clipboard"], test_dir_structure
+def test_json_file_output_no_processing_log(runner: CliRunner, caplog, test_dir_structure: pathlib.Path):
+    """Test JSON output file does not contain processing_log or sort_options_used in metadata."""
+    # Run with default sort, output to json file
+    console_log_lines, json_content_str = run_cli_and_get_console_log(
+        runner, caplog, test_dir_structure, ["--format", "json"], "digest.json"
     )
-    assert parsed_json is not None
-    assert parsed_json['metadata']['sort_options_used'] == DEFAULT_SORT_ORDER
 
-    processing_log = parsed_json['processing_log']
-    # Expected order from default sort (status, size)
-    expected_json_items = [
-        {'status': 'excluded', 'type': 'folder', 'path': 'node_modules', 'size_kb':0.0, 'reason_excluded': 'Matches default ignore pattern'},
-        {'status': 'excluded', 'type': 'file', 'path': 'temp_files/another_big_file.data', 'size_kb': 301.0, 'reason_excluded': 'Exceeds max size (301.0KB > 300KB)'},
-        {'status': 'excluded', 'type': 'file', 'path': 'temp_files/big_file.log', 'size_kb': 300.0, 'reason_excluded': 'Matches default ignore pattern'},
-        {'status': 'excluded', 'type': 'file', 'path': '.ignored_hidden.txt', 'size_kb': 0.0, 'reason_excluded': 'Is a hidden file'},
-        {'status': 'included', 'type': 'file', 'path': 'file_beta_large.txt', 'size_kb': 2.5, 'reason_excluded': None},
-        {'status': 'included', 'type': 'file', 'path': 'file_alpha.txt', 'size_kb': 0.0, 'reason_excluded': None},
-        {'status': 'included', 'type': 'file', 'path': 'sub_dir/file_delta_small.md', 'size_kb': 0.0, 'reason_excluded': None},
-        {'status': 'included', 'type': 'file', 'path': 'sub_dir/file_gamma.py', 'size_kb': 0.0, 'reason_excluded': None},
+    assert json_content_str is not None
+    parsed_json_file = json.loads(json_content_str)
+
+    assert "processing_log" not in parsed_json_file, "processing_log should not be in JSON file output."
+    assert "sort_options_used" not in parsed_json_file["metadata"], "sort_options_used should not be in file metadata."
+    assert "root" in parsed_json_file # Basic structure check
+
+    # Also check console log for default sort as a bonus
+    item_lines = [line for line in console_log_lines if line != "---"]
+    parsed_console_items = [parse_console_log_line(line) for line in item_lines]
+    expected_console_items = [
+        {'status': 'Excluded', 'type': 'Folder', 'path': 'node_modules', 'reason': 'Matches default ignore pattern'},
+        {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/another_big_file.data', 'size_kb': 301.0, 'reason': 'Exceeds max size (301.0KB > 300KB)'},
+        {'status': 'Excluded', 'type': 'File', 'path': 'temp_files/big_file.log', 'size_kb': 300.0, 'reason': 'Matches default ignore pattern'},
+        {'status': 'Excluded', 'type': 'File', 'path': '.ignored_hidden.txt', 'size_kb': 0.0, 'reason': 'Is a hidden file'},
+        {'status': 'Included', 'type': 'File', 'path': 'file_beta_large.txt', 'size_kb': 2.5},
+        {'status': 'Included', 'type': 'File', 'path': 'file_alpha.txt', 'size_kb': 0.0},
+        {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_delta_small.md', 'size_kb': 0.0},
+        {'status': 'Included', 'type': 'File', 'path': 'sub_dir/file_gamma.py', 'size_kb': 0.0},
     ]
-    assert len(processing_log) == len(expected_json_items)
-    for i, actual_item_json in enumerate(processing_log):
-        expected_item = expected_json_items[i]
-        assert actual_item_json['path'] == str(expected_item['path'])
-        assert actual_item_json['type'] == expected_item['type']
-        assert actual_item_json['status'] == expected_item['status'] # JSON status is already lowercase
-        if actual_item_json['type'] == 'file':
-            assert abs(actual_item_json['size_kb'] - expected_item['size_kb']) < 0.01
-        assert actual_item_json.get('reason_excluded') == expected_item.get('reason_excluded')
-        # Check all expected fields are present
-        assert all(k in actual_item_json for k in ["path", "type", "status", "size_kb", "reason_excluded"])
+    assert len(parsed_console_items) == len(expected_console_items)
+    for i, actual in enumerate(parsed_console_items):
+        assert_log_item_details(actual, expected_console_items[i], i, "console log for JSON output test")
+    check_console_separator_logic(console_log_lines, expect_separator=True, sort_desc="console log for JSON output test")
 
 ```

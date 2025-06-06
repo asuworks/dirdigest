@@ -140,7 +140,7 @@ The following table lists the command-line options and their corresponding keys 
 | `--quiet`                     | `-q`  | `quiet`                 | Suppress all console output below ERROR level. Overrides `-v`.                                                                                                          | `False`            |
 | `--log-file PATH`             |       | `log_file`              | Path to a file for detailed logging. All logs (including DEBUG level) will be written here, regardless of console verbosity.                                           | `None`             |
 | `--config PATH`               |       | N/A                     | Specify configuration file path. If omitted, tries to load `./.dirdigest`. Not set within the config file itself.                                                        | `None`             |
-| `--sort-output-log-by OPTION` |       | `sort_output_log_by`    | Sort the "Processing Log". Can be used multiple times. Valid `OPTION`s: `status`, `size`, `path`. <br> - `status`: Groups by Excluded then Included. Within each, sorts Folders (by path) then Files (by path). <br> - `size`: Groups by Excluded then Included. Within each, sorts Folders (by path) then Files (by size descending, then path). This is the behavior of the **default sort (`status`, `size`)** as well. <br> - `path`: Sorts all items by path (asc), then type (folders first). No status grouping. <br> - `status,path`: Same as `status`. <br> - `status,size`: Same as `size`. <br> - `size,path`: Sorts by type (folders first), then path for folders / size (desc) then path for files. No status grouping. | `status`, `size`   |
+| `--sort-output-log-by OPTION` |       | `sort_output_log_by`    | Sorts the "Detailed Processing Log" printed to the **console** (see "Console Output" below). Does not affect the digest file. Valid `OPTION`s: `status`, `size`, `path`. Can be used multiple times. <br> - `status`: Groups by Excluded then Included. Within each, sorts Folders (by path) then Files (by path). <br> - `size`: Groups by Excluded then Included. Within each, sorts Folders (by path) then Files (by size descending, then path). This is the behavior of the **default sort (`status`, `size`)** as well. <br> - `path`: Sorts all items by path (asc), then type (folders first). No status grouping. <br> - `status,path`: Same as `status`. <br> - `status,size`: Same as `size`. <br> - `size,path`: Sorts by type (folders first), then path for folders / size (desc) then path for files. No status grouping. | `status`, `size`   |
 | `--version`                   |       | N/A                     | Show the version of `dirdigest` and exit.                                                                                                                               | N/A                |
 | `--help`                      | `-h`  | N/A                     | Show this help message and exit.                                                                                                                                        | N/A                |
 
@@ -319,52 +319,62 @@ default:
 
 ## Output Format Details
 
-`dirdigest` can produce output in two main formats: Markdown (default) and JSON.
+`dirdigest` produces two primary forms of output: the **digest file** (in Markdown or JSON format) and **console messages** (including a detailed processing log).
 
-### Markdown Format
+### Digest File Output
 
-The Markdown output is structured for human readability and easy parsing by LLMs. It typically includes:
+The digest file provides a clean representation of the directory's content, intended for ingestion by LLMs or for archival.
 
-1.  **Header:** Title, tool version, creation timestamp, and summary statistics (included files count, total content size).
-2.  **Directory Structure:** A tree-like visualization of the processed directory, showing included files and folders.
-3.  **Processing Log (New):** A detailed list of all items (files and directories) that the tool encountered and made a decision about (included or excluded).
-    *   This section provides transparency into the filtering process.
-    *   Each entry follows the format: `- Status Type [Size: X.YKB]: path/to/item (Reason if excluded)`
-        *   `Status`: "Included" or "Excluded".
-        *   `Type`: "File" or "Folder".
-        *   `Size`: Approximate size in kilobytes (shown as `0.0KB` for folders unless they have a calculated size, e.g. if they were files in another context).
-        *   `path/to/item`: Relative path to the item.
-        *   `(Reason if excluded)`: If the item was excluded, the reason is provided (e.g., "Matches default ignore pattern", "Exceeds max size", "Is a hidden file").
-    *   The order of items in this log can be controlled using the `--sort-output-log-by` CLI option (see table above for details).
-    *   **Visual Separator**: When the sort order results in items being grouped by status (e.g., default sort, `--sort-output-log-by status`, `--sort-output-log-by size`), a visual separator (`---`) will be inserted between the "Excluded" items group and the "Included" items group, provided both groups exist. This separator is not added for sorts that do not primarily group by status (e.g., `--sort-output-log-by path`).
-4.  **Contents:** For each included file, its relative path is listed as a sub-header, followed by its content enclosed in a fenced code block (e.g., ```python ... ```). The language hint for the code block is derived from the file extension.
+#### Markdown Format (`--format markdown`, default)
 
-### JSON Format
+The Markdown digest file is structured for human readability and includes:
 
-The JSON output provides a structured representation of the digest, suitable for programmatic access. The top-level JSON object contains:
+1.  **Header:** Title with the base directory path, tool version, creation timestamp, and summary statistics (total included files, total content size).
+2.  **Directory Structure:** A tree-like visualization of the included files and folders. Folders and files are sorted alphabetically by path within each directory level.
+3.  **Contents:** For each included file, its relative path is listed as a sub-header, followed by its content enclosed in a fenced code block (e.g., ```python ... ```). The language hint for the code block is derived from the file extension.
+
+This file **does not** contain the detailed "Processing Log"; that is printed to the console.
+
+#### JSON Format (`--format json`)
+
+The JSON digest file provides a structured representation suitable for programmatic access. The top-level JSON object contains:
 
 *   `metadata`: An object with overall information:
     *   `tool_version`: Version of `dirdigest`.
     *   `created_at`: ISO 8601 timestamp of when the digest was generated.
     *   `base_directory`: Absolute path to the processed base directory.
     *   `included_files_count`: Number of files included in the digest content.
-    *   `excluded_items_count`: Number of items (files or directories) excluded by filters or errors.
+    *   `excluded_items_count`: Number of items (files or directories) that were excluded by filters or encountered errors during processing.
     *   `total_content_size_kb`: Total size of content from included files in kilobytes.
-    *   `sort_options_used`: (New) A list of strings indicating the sort keys applied to the `processing_log` (e.g., `["status", "size"]`).
 *   `root`: An object representing the root of the processed directory. This is a hierarchical tree structure containing only *included* files and the directories that lead to them. Each node in the tree has:
     *   `relative_path`: Path relative to the `base_directory`.
     *   `type`: "folder" or "file".
-    *   `children`: (For folders) A list of child nodes.
+    *   `children`: (For folders) A list of child nodes, sorted by type (folders first) and then alphabetically by path.
     *   `size_kb`: (For files) Size in kilobytes.
     *   `content`: (For files, if not an error) The content of the file.
     *   `read_error`: (For files, if applicable) A string describing any error encountered while trying to read the file.
-*   `processing_log`: (New) An array of objects, where each object represents an item (file or directory) processed by `dirdigest`. This list includes both included and excluded items and provides details similar to the Markdown "Processing Log":
-    *   `path`: Relative path to the item.
-    *   `type`: "file" or "folder".
-    *   `status`: "included" or "excluded".
-    *   `size_kb`: Size in kilobytes.
-    *   `reason_excluded`: String explaining why an item was excluded, or `null` if included.
-    *   This list is sorted according to the `sort_options_used` specified in the metadata.
+
+This file **does not** contain a `processing_log` array or `sort_options_used` in its metadata; these relate to the console log.
+
+### Console Output
+
+During execution, `dirdigest` prints messages to the console. The verbosity can be controlled with `-v` (INFO) and `-vv` (DEBUG) options.
+
+**Detailed Processing Log (Console - INFO level):**
+
+When the console verbosity is INFO level or higher (e.g., by using `-v` or by default if not `--quiet`), a "Detailed Processing Log" is printed. This log provides transparency into how each file and directory was handled.
+
+*   **Format:** Each entry follows the format: `Status Type [Size: X.YKB]: path/to/item (Reason if excluded)`
+    *   `Status`: "Included" or "Excluded".
+    *   `Type`: "File" or "Folder".
+    *   `Size`: Approximate size in kilobytes (shown as `0.0KB` for folders).
+    *   `path/to/item`: Relative path to the item.
+    *   `(Reason if excluded)`: If the item was excluded, the reason is provided (e.g., "Matches default ignore pattern", "Exceeds max size", "Is a hidden file").
+*   **Sorting:** The order of items in this console log is controlled by the `--sort-output-log-by` CLI option (see table above for details on sort behaviors).
+*   **Visual Separator:** When the console log's sort order results in items being grouped by status (e.g., default sort, or when `status` or `size` are primary sort keys), a visual separator (`---`) will be inserted between the "Excluded" items group and the "Included" items group, provided both groups exist. This separator is not added for sorts that do not primarily group by status (e.g., `--sort-output-log-by path`).
+
+**Summary (Console - INFO level):**
+After processing, a summary is printed to the console, including total files included, items excluded, total content size, sort options used for the console log, and execution time.
 
 ## Development Setup
 
