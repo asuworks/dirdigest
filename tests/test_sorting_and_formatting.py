@@ -36,32 +36,50 @@ def test_dir_structure(tmp_path: pathlib.Path) -> pathlib.Path:
     (base / "sub_dir_empty").mkdir(parents=True, exist_ok=True)
     return base
 
-# parse_log_line helper remains mostly the same, but input is now a direct log message
-def parse_console_log_line(log_line: str) -> dict:
+import re # Import re for regex
+from rich.markup import escape # Import escape for consistency if needed, though not used in parsing here
+
+# Updated parse_console_log_line to handle Rich markup
+def parse_console_log_line(rich_log_line: str) -> dict:
     parts = {}
-    # Example: "Included File [Size: 0.0KB]: file_alpha.txt"
-    # Example: "Excluded Folder [Size: 0.0KB]: node_modules (Matches default ignore pattern)"
+    # Example: "[log.excluded]Excluded[/log.excluded] File [log.size][Size: 0.0KB][/log.size]: [log.path].ignored_hidden.txt[/log.path] ([log.reason]Is a hidden file[/log.reason])"
+    # Example: "[log.included]Included[/log.included] File [log.size][Size: 2.5KB][/log.size]: [log.path]file_beta_large.txt[/log.path]"
 
-    # Status and Type from the start of the string
-    # log_line format: "{Status} {Type} [Size: {SizeDisplay}]: {Path}{Reason}"
+    # Regex to capture main parts
+    # Status (e.g., "Excluded", "Included")
+    # Type (e.g., "File", "Folder")
+    # Size (e.g., "0.0KB", "2.5KB")
+    # Path (e.g., ".ignored_hidden.txt", "file_beta_large.txt")
+    # Reason (optional, e.g., "Is a hidden file")
 
-    first_bracket = log_line.find(" [Size:")
-    status_type_str = log_line[:first_bracket]
-    parts["status"], parts["type"] = status_type_str.split(" ", 1)
+    pattern_str = (
+        r"\[log\.(?P<status_tag>excluded|included)\](?P<status_val>Excluded|Included)\[/log\.(?P=status_tag)\] "
+        r"(?P<type>File|Folder) "
+        r"\[log\.size\]\[Size: (?P<size_val>[\d\.]+KB|N/A)\]\[/log\.size\]: "
+        r"\[log\.path\](?P<path>.*?)\[/log\.path\]"
+        r"(?: \(\[log\.reason\](?P<reason>.*?)\[/log\.reason\]\))?"
+    )
 
-    try:
-        size_str = log_line.split("[Size: ", 1)[1].split("KB]", 1)[0]
-        parts["size_kb"] = float(size_str) if size_str != "N/A" else 0.0
-    except IndexError: # Should not happen if format is consistent
-        parts["size_kb"] = 0.0
+    match = re.match(pattern_str, rich_log_line)
+    if not match:
+        raise ValueError(f"Could not parse Rich log line: {rich_log_line}")
 
-    path_part_full = log_line.split("]: ", 1)[1]
-    if " (" in path_part_full:
-        parts["path"] = path_part_full.split(" (", 1)[0] # No backticks in console log
-        parts["reason"] = path_part_full.split(" (", 1)[1].rstrip(")")
+    data = match.groupdict()
+
+    parts["status"] = data["status_val"] # "Excluded" or "Included"
+    parts["type"] = data["type"]         # "File" or "Folder"
+
+    size_str = data["size_val"]
+    if size_str == "N/A":
+        parts["size_kb"] = 0.0 # Or handle as None if preferred
     else:
-        parts["path"] = path_part_full
-        parts["reason"] = None
+        parts["size_kb"] = float(size_str.replace("KB", ""))
+
+    parts["path"] = data["path"] # Path is already escaped by `rich.markup.escape` in cli.py if it had special chars
+                                 # For comparison, we might need the unescaped version if test paths have special chars.
+                                 # However, test paths here are simple.
+    parts["reason"] = data.get("reason") # Will be None if not present
+
     return parts
 
 def assert_log_item_details(actual_item, expected_item, item_index, sort_desc=""):

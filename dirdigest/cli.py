@@ -333,8 +333,17 @@ def main_cli(
                 size_display = "0.0KB"
 
             path_str = str(item['path'])
-            reason_str = f" ({item['reason_excluded']})" if item.get('reason_excluded') else ""
-            log_line = f"{status_str} {type_str} [Size: {size_display}]: {escape(path_str)}{escape(reason_str)}" # Escape path and reason
+            escaped_path_str = escape(path_str)
+
+            reason_raw = item.get('reason_excluded')
+            escaped_reason_str = escape(reason_raw) if reason_raw else ""
+            reason_part = f" ([log.reason]{escaped_reason_str}[/log.reason])" if reason_raw else ""
+
+            tag_for_status = "log.included" if item['status'] == 'included' else "log.excluded"
+
+            # Consider if type_str needs styling, e.g., [bold]{type_str}[/bold]
+            # For now, keeping it simple as per direct instructions.
+            log_line = f"[{tag_for_status}]{status_str}[/{tag_for_status}] {type_str} [log.size][Size: {size_display}][/log.size]: [log.path]{escaped_path_str}[/log.path]{reason_part}"
 
             current_item_status = item['status']
             if separator_needed_for_console and \
