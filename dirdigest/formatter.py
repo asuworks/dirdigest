@@ -210,23 +210,45 @@ class MarkdownFormatter(BaseFormatter):
         if not self.sorted_output_list:
             md_lines.append("\n*No items processed or log is empty.*")
         else:
-            md_lines.append("") # Ensure a blank line before list
+            md_lines.append("")  # Ensure a blank line before list
+
+            sort_options_used = self.core_metadata.get("sort_options_used", [])
+            # Determine if a separator is needed based on primary status grouping
+            needs_separator_between_status_groups = False
+            if sort_options_used:
+                # Check if 'status' is the first sort option, or if the logic for 'size' implies status grouping
+                # The revised logic for ['size'] in core.py sorts by status first.
+                if sort_options_used[0] == 'status' or sort_options_used == ['size'] or sort_options_used == ['status', 'size']:
+                    needs_separator_between_status_groups = True
+
+            previous_item_status_for_separator = None
             for item in self.sorted_output_list:
-                status = item.get("status", "N/A").capitalize()
+                current_item_status = item.get("status") # "included" or "excluded"
+
+                if needs_separator_between_status_groups and \
+                   current_item_status == "included" and \
+                   previous_item_status_for_separator == "excluded":
+                    # Check if there were any excluded items to ensure separator is meaningful
+                    if any(i.get("status") == "excluded" for i in self.sorted_output_list):
+                         md_lines.append("\n---\n") # Add separator line
+
+                status_display = current_item_status.capitalize() if current_item_status else "N/A"
                 item_type = item.get("type", "N/A").capitalize()
-                path = item.get("path", "N/A")
+                path = item.get("path", "N/A") # This is a pathlib.Path object
                 size_kb = item.get("size_kb")
 
                 size_str = f"{size_kb:.1f}KB" if isinstance(size_kb, float) else "N/A"
-                # For folders with 0.0KB, let's show it as specified.
-                if item_type == "Folder" and size_kb == 0.0:
+                if item_type == "Folder" and size_kb == 0.0: # Ensure 0.0KB is shown for folders
                     size_str = "0.0KB"
 
-                log_line = f"- {status} {item_type} [Size: {size_str}]: `{path}`"
+                log_line = f"- {status_display} {item_type} [Size: {size_str}]: `{str(path)}`" # Convert path to string for display
                 if item.get("reason_excluded"):
                     log_line += f" ({item['reason_excluded']})"
                 md_lines.append(log_line)
-        md_lines.append("\n---")
+
+                previous_item_status_for_separator = current_item_status
+
+        md_lines.append("\n---") # This is the separator after the whole log section
 
         # 4. File Contents
         md_lines.append("\n## Contents")

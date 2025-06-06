@@ -140,7 +140,7 @@ The following table lists the command-line options and their corresponding keys 
 | `--quiet`                     | `-q`  | `quiet`                 | Suppress all console output below ERROR level. Overrides `-v`.                                                                                                          | `False`            |
 | `--log-file PATH`             |       | `log_file`              | Path to a file for detailed logging. All logs (including DEBUG level) will be written here, regardless of console verbosity.                                           | `None`             |
 | `--config PATH`               |       | N/A                     | Specify configuration file path. If omitted, tries to load `./.dirdigest`. Not set within the config file itself.                                                        | `None`             |
-| `--sort-output-log-by OPTION` |       | `sort_output_log_by`    | Sort the detailed list of processed items in the output. Valid options: `status`, `size`, `path`. Can be specified multiple times for prioritized sorting (e.g., `--sort-output-log-by status --sort-output-log-by size`). | `status`, `size`   |
+| `--sort-output-log-by OPTION` |       | `sort_output_log_by`    | Sort the "Processing Log". Can be used multiple times. Valid `OPTION`s: `status`, `size`, `path`. <br> - `status`: Groups by Excluded then Included. Within each, sorts Folders (by path) then Files (by path). <br> - `size`: Groups by Excluded then Included. Within each, sorts Folders (by path) then Files (by size descending, then path). This is the behavior of the **default sort (`status`, `size`)** as well. <br> - `path`: Sorts all items by path (asc), then type (folders first). No status grouping. <br> - `status,path`: Same as `status`. <br> - `status,size`: Same as `size`. <br> - `size,path`: Sorts by type (folders first), then path for folders / size (desc) then path for files. No status grouping. | `status`, `size`   |
 | `--version`                   |       | N/A                     | Show the version of `dirdigest` and exit.                                                                                                                               | N/A                |
 | `--help`                      | `-h`  | N/A                     | Show this help message and exit.                                                                                                                                        | N/A                |
 
@@ -332,10 +332,11 @@ The Markdown output is structured for human readability and easy parsing by LLMs
     *   Each entry follows the format: `- Status Type [Size: X.YKB]: path/to/item (Reason if excluded)`
         *   `Status`: "Included" or "Excluded".
         *   `Type`: "File" or "Folder".
-        *   `Size`: Approximate size in kilobytes.
+        *   `Size`: Approximate size in kilobytes (shown as `0.0KB` for folders unless they have a calculated size, e.g. if they were files in another context).
         *   `path/to/item`: Relative path to the item.
         *   `(Reason if excluded)`: If the item was excluded, the reason is provided (e.g., "Matches default ignore pattern", "Exceeds max size", "Is a hidden file").
-    *   The order of items in this log can be controlled using the `--sort-output-log-by` CLI option.
+    *   The order of items in this log can be controlled using the `--sort-output-log-by` CLI option (see table above for details).
+    *   **Visual Separator**: When the sort order results in items being grouped by status (e.g., default sort, `--sort-output-log-by status`, `--sort-output-log-by size`), a visual separator (`---`) will be inserted between the "Excluded" items group and the "Included" items group, provided both groups exist. This separator is not added for sorts that do not primarily group by status (e.g., `--sort-output-log-by path`).
 4.  **Contents:** For each included file, its relative path is listed as a sub-header, followed by its content enclosed in a fenced code block (e.g., ```python ... ```). The language hint for the code block is derived from the file extension.
 
 ### JSON Format
@@ -364,8 +365,6 @@ The JSON output provides a structured representation of the digest, suitable for
     *   `size_kb`: Size in kilobytes.
     *   `reason_excluded`: String explaining why an item was excluded, or `null` if included.
     *   This list is sorted according to the `sort_options_used` specified in the metadata.
-
-## Development Setup
 
 ## Development Setup
 

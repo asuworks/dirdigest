@@ -325,76 +325,97 @@ def prepare_output_list(
     output_list = []
     for rel_path, item_type, status, payload in processed_items_generator:
         item_dict = {
-            "path": rel_path,
-            "type": item_type,
-            "status": status,
+            "path": rel_path, # pathlib.Path object
+            "type": item_type, # "file" or "folder"
+            "status": status,  # "included" or "excluded"
             "size_kb": payload.get("size_kb", 0.0),
             "reason_excluded": payload.get("reason_excluded"),
-            # "read_error" could be added if needed for the log, from payload
         }
         output_list.append(item_dict)
 
-    # Sorting logic
-    def get_sort_key(item: Dict[str, Any]):
-        # Default values for tie-breaking if a primary sort key is not in sort_options
-        status_order = 0 if item["status"] == "included" else 1 # included first
-        type_order = 0 if item["type"] == "folder" else 1 # folders first
-        # Size: primary sort is descending for files, folders effectively 0 or handled by type_order
-        # Negative size for descending sort of files. Folders get 0 or a value that groups them as desired.
-        size_for_sort = -item["size_kb"] if item["type"] == "file" else 0
-        path_for_sort = item["path"]
+    # Define sort value getters
+    def status_sort_val(item): return 0 if item['status'] == 'excluded' else 1 # excluded first
+    def type_sort_val(item): return 0 if item['type'] == 'folder' else 1     # folder first
+    def path_sort_val(item): return item['path']
+    def size_sort_val(item): return item['size_kb']
 
-        key_components = []
-        # Build key components based on sort_options, maintaining their order
-        for option in sort_options:
-            if option == "status":
-                key_components.append(status_order)
-            elif option == "size":
-                key_components.append(size_for_sort)
-            elif option == "path": # "path" implies type grouping first, then path
-                key_components.append(path_for_sort)
-
-        # Add default tie-breakers for options not explicitly listed in sort_options
-        # This ensures stable sorting and covers all fields if not specified.
-        # The order of these tie-breakers is fixed: status, type, size, path.
-        if "status" not in sort_options:
-            key_components.append(status_order)
-
-        # Type order (folder vs file) is implicitly handled by how size_for_sort is defined
-        # or can be added explicitly if more complex type sorting is needed beyond size.
-        # For now, we'll ensure type (folder/file) is considered before path if path is a sort key.
-        # If path is the primary sort, we still want folders grouped before files within the same path segment.
-        # A simple way is to always include type_order if path is involved or as a general tie-breaker.
-        # Let's refine this: type_order should be a standard tie-breaker.
-        if "type" not in sort_options: # Assuming "type" itself is not a direct sort option from CLI
-             # This ensures folders come before files if other primary keys are equal.
-            key_components.append(type_order)
-
-
-        if "size" not in sort_options:
-            key_components.append(size_for_sort)
-        if "path" not in sort_options:
-            key_components.append(path_for_sort)
-
-        return tuple(key_components)
-
-    # Special case for size-only sort as per original requirement for specific ordering
-    if sort_options == ["size"]:
-        # Sort key: (item_type == 'folder', -size_kb if item_type == 'file' else 0, path)
-        # This puts folders first (sorted by path), then files by size descending (then path).
-        output_list.sort(key=lambda item: (item["type"] == "folder", -item["size_kb"] if item["type"] == "file" else 0, item["path"]), reverse=True)
-        # The reverse=True with "type=='folder'" (False for files, True for folders) makes folders (True) come after files (False)
-        # To make folders come first, it should be: (item["type"] == "file", ...)
-        # Folders first: (item["type"]=="file") -> False for folders, True for files. So folders come first.
-        # Then by size descending for files.
-        # Then by path ascending.
+    # Apply sorting based on sort_options
+    if sort_options == ['status'] or sort_options == ['status', 'path']:
+        # Sort by: (status_sort_val, type_sort_val, path_sort_val)
+        # Excluded items first, then Included. Within each, Folders first, then Files. Then by Path.
         output_list.sort(key=lambda item: (
-            item["type"] == "file", # Folders (False) before Files (True)
-            -item["size_kb"] if item["type"] == "file" else 0, # Files by size desc, folders effectively 0
-            item["path"] # Then by path asc
+            status_sort_val(item),
+            type_sort_val(item),
+            path_sort_val(item)
+        ))
+    elif sort_options == ['size']:
+        # Sort key for an item:
+        # If type is folder (0): (status, type, path, 0) (path for folders, 0 for size part)
+        # If type is file (1): (status, type, -size, path) (-size for descending, path for tie-breaking)
+        # This means: Excluded Folders by Path, Excluded Files by Size DESC,
+        #             Included Folders by Path, Included Files by Size DESC
+        output_list.sort(key=lambda item: (
+            status_sort_val(item),
+            type_sort_val(item),
+            path_sort_val(item) if item['type'] == 'folder' else -size_sort_val(item), # Path for folders, -Size for files
+            path_sort_val(item) if item['type'] == 'file' else 0 # Path for files (tie-breaker), 0 for folders
+        ))
+    elif sort_options == ['path']:
+        # Sort by: (path_sort_val)
+        # Primary sort by path. Type can be secondary if items can have same path (e.g. dir and file named 'foo')
+        # but with full relative paths, this is unlikely. Using type as secondary for stability.
+        output_list.sort(key=lambda item: (
+            path_sort_val(item),
+            type_sort_val(item) # Ensure folders list before files if paths are somehow identical/related
+        ))
+    elif sort_options == ['status', 'size']: # Default
+        # Sort key for an item (same as ['size'] logic, as status is the primary sort component)
+        # Excluded items first, then Included.
+        # Within status: Folders first (by path), then Files (by size desc, then path).
+        output_list.sort(key=lambda item: (
+            status_sort_val(item), # status is primary
+            type_sort_val(item),   # then type
+            # For folders, sort by path. For files, sort by -size.
+            path_sort_val(item) if item['type'] == 'folder' else -size_sort_val(item),
+            # Tie-breaker for files is path. For folders, this component is not really used as path is primary for them here.
+            path_sort_val(item) if item['type'] == 'file' else 0
+        ))
+    elif sort_options == ['size', 'path']:
+        # Sort key for an item:
+        # If type is folder (0): (type, path, 0) (No status grouping)
+        # If type is file (1): (type, -size, path) (No status grouping)
+        # This means: All Folders by Path, then All Files by Size DESC then Path.
+        output_list.sort(key=lambda item: (
+            type_sort_val(item), # type is primary
+            path_sort_val(item) if item['type'] == 'folder' else -size_sort_val(item),
+            path_sort_val(item) if item['type'] == 'file' else 0
         ))
     else:
-        output_list.sort(key=get_sort_key)
+        # Fallback to a default sort if an unexpected combination is passed, though CLI restricts choices.
+        # This is the original general sort key builder.
+        # status_order = 0 if item["status"] == "included" else 1 # included first
+        # type_order = 0 if item["type"] == "folder" else 1 # folders first
+        # size_for_sort = -item["size_kb"] if item["type"] == "file" else 0
+        # path_for_sort = item["path"]
+        # key_components = []
+        # for option in sort_options: # Build key from options in order
+        #     if option == "status": key_components.append(status_order)
+        #     elif option == "size": key_components.append(size_for_sort)
+        #     elif option == "path": key_components.append(path_for_sort)
+        # # Default tie-breakers
+        # if "status" not in sort_options: key_components.append(status_order)
+        # if "type" not in sort_options: key_components.append(type_order) # Implicitly handled by size_for_sort usually
+        # if "size" not in sort_options: key_components.append(size_for_sort)
+        # if "path" not in sort_options: key_components.append(path_for_sort)
+        # output_list.sort(key=lambda item_lambda: tuple(k(item_lambda) if callable(k) else k for k in key_components_template))
+        # For safety, let's just use the default sort ['status', 'size'] if unhandled combo
+        logger.warning(f"Core: Unhandled sort_options combination: {sort_options}. Falling back to default sort.")
+        output_list.sort(key=lambda item: (
+            status_sort_val(item),
+            type_sort_val(item),
+            path_sort_val(item) if item['type'] == 'folder' else -size_sort_val(item),
+            path_sort_val(item) if item['type'] == 'file' else 0
+        ))
 
     logger.info(f"Core: Prepared and sorted output list with {len(output_list)} items using sort options: {sort_options}")
     return output_list
