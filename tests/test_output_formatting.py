@@ -1,5 +1,4 @@
 # tests/test_output_formatting.py
-# (Keep other imports and helper functions as they were in the last full version)
 import json
 import os
 import re
@@ -10,12 +9,12 @@ import pytest
 from click.testing import CliRunner
 
 from dirdigest import cli as dirdigest_cli
-from dirdigest.core import LogEvent # For type hinting
-from dirdigest.formatter import format_log_event_for_cli # Function to test
 from dirdigest.constants import TOOL_VERSION
-
+from dirdigest.core import LogEvent  # For type hinting
+from dirdigest.formatter import format_log_event_for_cli  # Function to test
 
 # --- Unit tests for format_log_event_for_cli ---
+
 
 def test_format_log_event_included_file():
     log_event: LogEvent = {
@@ -28,6 +27,7 @@ def test_format_log_event_included_file():
     expected_str = "[log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 2.35KB)"
     assert format_log_event_for_cli(log_event) == expected_str
 
+
 def test_format_log_event_excluded_folder_with_reason():
     log_event: LogEvent = {
         "path": "node_modules/",
@@ -38,6 +38,7 @@ def test_format_log_event_excluded_folder_with_reason():
     }
     expected_str = "[log.excluded]Excluded folder[/log.excluded]: [log.path]node_modules/[/log.path] ([log.reason]Matches default ignore pattern[/log.reason]) (Size: 10240.00KB)"
     assert format_log_event_for_cli(log_event) == expected_str
+
 
 def test_format_log_event_error_status_with_reason():
     log_event: LogEvent = {
@@ -50,31 +51,34 @@ def test_format_log_event_error_status_with_reason():
     expected_str = "[log.error]Error folder[/log.error]: [log.path]bad_dir/[/log.path] ([log.reason]Error calculating size: Permission denied[/log.reason]) (Size: 0.00KB)"
     assert format_log_event_for_cli(log_event) == expected_str
 
+
 def test_format_log_event_missing_reason_for_excluded():
     log_event: LogEvent = {
         "path": "temp.tmp",
         "item_type": "file",
         "status": "excluded",
         "size_kb": 1.0,
-        "reason": None, # Excluded but reason is None
+        "reason": None,  # Excluded but reason is None
     }
     # Reason part should be omitted if reason is None, even if excluded
     expected_str = "[log.excluded]Excluded file[/log.excluded]: [log.path]temp.tmp[/log.path] (Size: 1.00KB)"
     assert format_log_event_for_cli(log_event) == expected_str
+
 
 def test_format_log_event_size_not_numeric():
     log_event: LogEvent = {
         "path": "data.bin",
         "item_type": "file",
         "status": "included",
-        "size_kb": "very large", # Invalid size type
+        "size_kb": "very large",  # Invalid size type
         "reason": None,
     }
     expected_str = "[log.included]Included file[/log.included]: [log.path]data.bin[/log.path] (Size: N/AKB)"
     assert format_log_event_for_cli(log_event) == expected_str
 
+
 def test_format_log_event_minimal_data():
-    log_event: LogEvent = { # type: ignore
+    log_event: LogEvent = {  # type: ignore
         "path": "minimal.txt",
         # item_type, status, size_kb, reason are missing
     }
@@ -85,6 +89,7 @@ def test_format_log_event_minimal_data():
 
 
 # --- Existing tests for JSON/Markdown output format ---
+
 
 def get_included_files_from_json(json_output_str: str) -> set[str]:
     try:
@@ -121,15 +126,25 @@ def structure_text_contains(markdown_output: str, substring: str) -> bool:
 def test_markdown_output_basic_structure_simple_project(
     runner: CliRunner, temp_test_dir: Path
 ):
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
     markdown_output = ""
-    with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-        result = runner.invoke(dirdigest_cli.main_cli, ["--format", "markdown"])
-        if mock_rich_print.call_args_list:
-            markdown_output = "".join(
-                str(call.args[0])
-                for call in mock_rich_print.call_args_list
-                if call.args
+    try:
+        with mock.patch(
+            "dirdigest.utils.logger.stdout_console.print"
+        ) as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli, [".", "--format", "markdown", "--no-clipboard"]
             )
+            if mock_rich_print.call_args_list:
+                markdown_output = "".join(
+                    str(call.args[0])
+                    for call in mock_rich_print.call_args_list
+                    if call.args
+                )
+    finally:
+        os.chdir(original_cwd)
+
     assert result.exit_code == 0
     assert len(markdown_output) > 0
     assert f"# Directory Digest: {str(temp_test_dir.resolve())}" in markdown_output
@@ -143,21 +158,20 @@ def test_markdown_output_basic_structure_simple_project(
     assert "\n---\n" in markdown_output
     assert "\n## Directory Structure\n" in markdown_output
     assert "\n```text\n" in markdown_output
-    assert structure_text_contains(markdown_output, ".\n")
+
+    # After sorting fix (folders first)
+    assert structure_text_contains(markdown_output, "├── sub_dir1/")
+    assert structure_text_contains(markdown_output, "│   └── script.py")
     assert structure_text_contains(markdown_output, "├── file1.txt")
-    assert structure_text_contains(
-        markdown_output, "└── sub_dir1/"
-    )  # Trailing / is important for dir nodes in visual
-    assert structure_text_contains(
-        markdown_output, "    └── script.py"
-    )  # Note: script.py doesn't end with /
+    assert structure_text_contains(markdown_output, "└── file2.md")
+
     assert "\n```\n" in markdown_output
     assert "\n## Contents\n" in markdown_output
     assert re.search(
-        r"### `./file1\.txt`\s*```(.*?\s*)*?```", markdown_output, re.DOTALL
+        r"### `./sub_dir1/script\.py`\s*```py(.*?\s*)*?```", markdown_output, re.DOTALL
     )
     assert re.search(
-        r"### `./sub_dir1/script\.py`\s*```py(.*?\s*)*?```", markdown_output, re.DOTALL
+        r"### `./file1\.txt`\s*```(.*?\s*)*?```", markdown_output, re.DOTALL
     )
 
 
@@ -165,107 +179,52 @@ def test_markdown_output_basic_structure_simple_project(
 def test_markdown_directory_structure_visualization_complex(
     runner: CliRunner, temp_test_dir: Path
 ):
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
     markdown_output = ""
-    with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-        result = runner.invoke(
-            dirdigest_cli.main_cli, ["--format", "markdown", "--max-depth", "2"]
-        )
-        if mock_rich_print.call_args_list:
-            markdown_output = "".join(
-                str(call.args[0])
-                for call in mock_rich_print.call_args_list
-                if call.args
+    try:
+        with mock.patch(
+            "dirdigest.utils.logger.stdout_console.print"
+        ) as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli,
+                [".", "--format", "markdown", "--max-depth", "3", "--no-clipboard"],
             )
+            if mock_rich_print.call_args_list:
+                markdown_output = "".join(
+                    str(call.args[0])
+                    for call in mock_rich_print.call_args_list
+                    if call.args
+                )
+    finally:
+        os.chdir(original_cwd)
 
     assert result.exit_code == 0
     match = re.search(
         r"## Directory Structure\n+```text\n(.*?)\n```", markdown_output, re.DOTALL
     )
     assert match, "Directory structure block not found"
-    structure_text = match.group(1)
-    # structure_lines = [
-    #     line.strip() for line in structure_text.strip().split("\n")
-    # ]  # Strip lines for comparison
+    structure_text = match.group(1).replace(os.sep, "/")
 
-    # Expected structure based on your complex_project spec and alphabetical sort
-    # Root elements (config.yaml, data/, docs/, README.md, src/, tests/)
-    # tests/ is last.
-    # src/ contains feature/, main.py, utils.py (sorted: feature, main, utils)
-    # docs/ contains api.md, index.md (sorted: api.md, index.md)
-    #   and docs/api/ (subdir based on log) with reference.md
-
-    # Define expected lines carefully, removing potential leading/trailing spaces from split lines
-    # for more robust comparison.
-    # expected_tree_lines_in_order = [
-    #     ".",
-    #     "├── README.md",  # Alphabetical: R
-    #     "├── config.yaml",  # Alphabetical: c
-    #     "├── data/",  # Alphabetical: d (data)
-    #     "│   └── small_data.csv",
-    #     "├── docs/",  # Alphabetical: d (docs)
-    #     "│   ├── api.md",  # Alphabetical: a (api dir)
-    #     "│   └── index.md",  # Alphabetical: i (index.md)
-    #     "├── src/",  # Alphabetical: s (src)
-    #     "│   ├── feature/",
-    #     "│   │   └── module.py",
-    #     "│   ├── main.py",
-    #     "│   └── utils.py",
-    #     "└── tests/",  # Alphabetical: t (tests) - this should be last
-    #     "    ├── test_main.py",
-    #     "    └── test_utils.py",
-    # ]
-
-    # Corrected assertions, searching within the whole structure_text for simplicity,
-    # or checking against structure_lines (which is probably more robust).
-    # Let's use structure_text with `\n` for expected newlines between lines.
-
-    # Assert root
+    # Based on corrected sorting: Folders first (alpha), then files (alpha).
+    # Folders: data, docs, src, tests
+    # Files: README.md, config.yaml
     assert ".\n" in structure_text
-
-    # Assert structure for docs/ (based on previous log analysis for your fixture)
-    # Assuming docs/ is NOT the last root item, so it has ├──
-    # And children of docs/ are: api/ (dir), api.md (file), index.md (file)
-    # Sorted: api/ (dir), api.md (file), index.md (file)
-    # This also means the connecting line for children of docs/ should be '│'
+    assert "├── data/\n" in structure_text
+    assert "│   └── small_data.csv" in structure_text
     assert "├── docs/\n" in structure_text
-    assert "│   ├── api.md\n" in structure_text  # file
-    assert "│   └── index.md\n" in structure_text  # file (last under docs)
-
-    # Assert structure for src/
-    # Assuming src/ is NOT the last root item
+    assert "│   ├── api.md\n" in structure_text
+    assert "│   └── index.md" in structure_text
     assert "├── src/\n" in structure_text
     assert "│   ├── feature/\n" in structure_text
-    assert "│   │   └── module.py\n" in structure_text
+    assert "│   │   └── module.py" in structure_text
     assert "│   ├── main.py\n" in structure_text
-    assert "│   └── utils.py\n" in structure_text  # last under src
-
-    # Assert structure for tests/
-    # Assuming tests/ IS the last root item
-    assert "└── tests/\n" in structure_text
-    assert "    ├── test_main.py\n" in structure_text  # Indented with spaces
-    assert (
-        "    └── test_utils.py" in structure_text
-    )  # Last line in structure, might not have \n in structure_text itself
-    # but the join in formatter adds it.
-    # The structure_text from regex group(1) will contain it with a \n IF it's not the very last char of group(1).
-    # If "    └── test_utils.py" is the absolute end of match.group(1), it won't have \n after it.
-    # The previous output showed it as the end: "...    └── test_utils.py"
-    # So, assert without \n for this specific one if it's the true end.
-    # Or, ensure structure_text always ends with \n if it's non-empty.
-    # The regex (.*?) captures up to the final \n```.
-
-    # Let's assume the formatter ensures all lines internally end with \n before final join,
-    # or that the overall join ensures this.
-    # The string `structure_text` from your error log:
-    # '.\n├── README.md\n...main.py\n    └── test_utils.py' (no final \n here)
-    # This means the `(test_utils.py)` is the last part of `match.group(1)`.
-
-    # So the assertion should be:
-    assert (
-        "    └── test_utils.py" in structure_text
-    )  # No \n if it's the very end of the block
-    # And ensure it's not followed by another line of the tree:
-    assert structure_text.endswith("    └── test_utils.py")
+    assert "│   └── utils.py" in structure_text
+    assert "├── tests/\n" in structure_text
+    assert "│   ├── test_main.py\n" in structure_text
+    assert "│   └── test_utils.py" in structure_text
+    assert "├── README.md\n" in structure_text
+    assert "└── config.yaml" in structure_text.strip()
 
     # Verify default ignored are not present
     assert ".git/" not in structure_text
@@ -275,52 +234,59 @@ def test_markdown_directory_structure_visualization_complex(
 
 @pytest.mark.parametrize("temp_test_dir", ["lang_hint_project"], indirect=True)
 def test_markdown_code_block_language_hints(runner: CliRunner, temp_test_dir: Path):
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
     markdown_output = ""
-    with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-        result = runner.invoke(
-            dirdigest_cli.main_cli, ["--format", "markdown", "--no-default-ignore"]
-        )
-        if mock_rich_print.call_args_list:
-            markdown_output = "".join(
-                str(call.args[0])
-                for call in mock_rich_print.call_args_list
-                if call.args
+    try:
+        with mock.patch(
+            "dirdigest.utils.logger.stdout_console.print"
+        ) as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli,
+                [".", "--format", "markdown", "--no-default-ignore", "--no-clipboard"],
             )
+            if mock_rich_print.call_args_list:
+                markdown_output = "".join(
+                    str(call.args[0])
+                    for call in mock_rich_print.call_args_list
+                    if call.args
+                )
+    finally:
+        os.chdir(original_cwd)
+
     assert result.exit_code == 0
-    # Using re.escape on content might be needed if content has regex special chars
-    # For simple content, direct string is fine. The echo command adds a newline.
+
+    markdown_output = markdown_output.replace(os.sep, "/")
+
+    # The `echo` command in the setup script adds a newline to the file content.
+    # The regex needs to account for this. Using `\s*` to be flexible.
     assert re.search(
-        r"### `./script\.py`\s*```py\s*print\(\"python\"\)\n\s*```",
+        r"### `./script\.py`\s*```py\s*print\(\"python\"\)\s*```",
         markdown_output,
-        re.DOTALL,
     )
     assert re.search(
-        r"### `./styles\.css`\s*```css\s*body \{ color: blue; \}\n\s*```",
+        r"### `./styles\.css`\s*```css\s*body \{ color: blue; \}\s*```",
         markdown_output,
-        re.DOTALL,
     )
     assert re.search(
-        r"### `./data\.json`\s*```json\s*\{\"key\": \"value\"\}\n\s*```",
+        r"### `./data\.json`\s*```json\s*\{\"key\": \"value\"\}\s*```",
         markdown_output,
-        re.DOTALL,
+    )
+    assert re.search(r"### `./README\.md`\s*```md\s*# Markdown\s*```", markdown_output)
+    assert re.search(
+        r"### `./unknown\.xyz`\s*```xyz\s*some data\s*```",
+        markdown_output,
     )
     assert re.search(
-        r"### `./README\.md`\s*```md\s*# Markdown\n\s*```", markdown_output, re.DOTALL
-    )
-    assert re.search(
-        r"### `./unknown\.xyz`\s*```(xyz)?\s*some data\n\s*```",
+        r"### `./no_ext_file`\s*```\s*text with no extension\s*```",
         markdown_output,
-        re.DOTALL,
-    )
-    assert re.search(
-        r"### `./no_ext_file`\s*```\s*text with no extension\n\s*```",
-        markdown_output,
-        re.DOTALL,
     )
 
 
 @pytest.mark.parametrize("temp_test_dir", ["content_processing_dir"], indirect=True)
 def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
     markdown_output = ""
     file_to_make_unreadable = Path("permission_denied_file.txt")
     original_permissions = None
@@ -333,7 +299,14 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
         ) as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                ["--format", "markdown", "--ignore-errors", "--no-default-ignore"],
+                [
+                    ".",
+                    "--format",
+                    "markdown",
+                    "--ignore-errors",
+                    "--no-default-ignore",
+                    "--no-clipboard",
+                ],
             )
             if mock_rich_print.call_args_list:
                 markdown_output = "".join(
@@ -344,7 +317,10 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
     finally:
         if original_permissions is not None and file_to_make_unreadable.exists():
             os.chmod(file_to_make_unreadable, original_permissions)
+        os.chdir(original_cwd)
+
     assert result.exit_code == 0
+    markdown_output = markdown_output.replace(os.sep, "/")
     assert f"\n### `./{file_to_make_unreadable.name}`\n" in markdown_output
     assert re.search(
         r"```(text)?\s*Error reading file:.*?Permission denied.*?\s*```",
@@ -357,37 +333,55 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
 def test_json_output_metadata_and_root_structure(
     runner: CliRunner, temp_test_dir: Path
 ):
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
     json_output_str = ""
-    with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-        result = runner.invoke(dirdigest_cli.main_cli, ["--format", "json"])
-        if mock_rich_print.call_args_list:
-            json_output_str = "".join(
-                str(call.args[0])
-                for call in mock_rich_print.call_args_list
-                if call.args
+    try:
+        with mock.patch(
+            "dirdigest.utils.logger.stdout_console.print"
+        ) as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"]
             )
+            if mock_rich_print.call_args_list:
+                json_output_str = "".join(
+                    str(call.args[0])
+                    for call in mock_rich_print.call_args_list
+                    if call.args
+                )
+    finally:
+        os.chdir(original_cwd)
+
     assert result.exit_code == 0
     try:
         data = json.loads(json_output_str)
     except json.JSONDecodeError:
         pytest.fail(f"Output was not valid JSON: {json_output_str}")
+
     assert "metadata" in data
     metadata = data["metadata"]
     assert metadata["tool_version"] == TOOL_VERSION
     assert "created_at" in metadata
     assert Path(metadata["base_directory"]) == temp_test_dir.resolve()
     assert "included_files_count" in metadata
-    assert "excluded_files_count" in metadata
+    assert "excluded_items_count" in metadata
     assert "total_content_size_kb" in metadata
     assert isinstance(metadata["included_files_count"], int)
-    assert isinstance(metadata["excluded_files_count"], int)
+    assert isinstance(metadata["excluded_items_count"], int)
     assert isinstance(metadata["total_content_size_kb"], (float, int))
+    # In simple_project, there are no default ignored files, so excluded count should be 0.
     assert metadata["included_files_count"] == 3
-    assert metadata["excluded_files_count"] == 0
+    assert metadata["excluded_items_count"] == 0
+
     assert "root" in data
     root_node = data["root"]
     assert root_node["relative_path"] == "."
     assert root_node["type"] == "folder"
     assert "children" in root_node
     assert isinstance(root_node["children"], list)
-    assert len(root_node["children"]) == 3
+
+    # Check that children are sorted (folders first, then files, all alphabetically)
+    child_paths = [
+        c["relative_path"].replace(os.sep, "/") for c in root_node["children"]
+    ]
+    assert child_paths == ["sub_dir1", "file1.txt", "file2.md"]

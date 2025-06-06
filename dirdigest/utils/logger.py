@@ -2,6 +2,7 @@
 import logging
 import sys
 from pathlib import Path  # Added for type hint of log_file_path
+
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.theme import Theme
@@ -118,7 +119,3 @@ def setup_logging(
         f"Console handler effective level: {console_log_level_name}. "
         f"File logging: {file_logging_status}"
     )
-
-
-# No need for example usage here as this module is for setup.
-# Other modules will import 'logger' from this file.

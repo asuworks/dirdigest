@@ -18,7 +18,7 @@ from dirdigest.utils import (
 # These mocks will be used by most tests in this file.
 COMMON_MOCKS = [
     mock.patch(
-        "dirdigest.core.process_directory_recursive", return_value=(iter([]), {})
+        "dirdigest.core.process_directory_recursive", return_value=(iter([]), {}, [])
     ),
     mock.patch("dirdigest.core.build_digest_tree", return_value=({}, {})),
     # Mock both formatters as the format can change via config
@@ -69,8 +69,8 @@ class TestConfigLoadingAndMerging:
             temp_test_dir, dirdigest_config.DEFAULT_CONFIG_FILENAME, config_content
         )
 
-        result = runner.invoke(dirdigest_cli.main_cli)  # No CLI args to override these
-        assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+        result = runner.invoke(dirdigest_cli.main_cli, catch_exceptions=False)
+        assert result.exit_code == 0, f"CLI failed. Output: {result.output}"
 
         mock_process_dir.assert_called_once()
         kwargs = mock_process_dir.call_args.kwargs
@@ -119,8 +119,9 @@ class TestConfigLoadingAndMerging:
                 "--exclude",
                 "*.tmp",  # CLI adds this, config.py merge logic should handle merging/overriding lists
             ],
+            catch_exceptions=False,
         )
-        assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+        assert result.exit_code == 0, f"CLI failed. Output: {result.output}"
 
         mock_process_dir.assert_called_once()
         kwargs = mock_process_dir.call_args.kwargs
@@ -160,8 +161,12 @@ class TestConfigLoadingAndMerging:
         config_content = {"default": {"max_depth": 3, "follow_symlinks": True}}
         self.create_config_file(temp_test_dir, config_filename, config_content)
 
-        result = runner.invoke(dirdigest_cli.main_cli, ["--config", config_filename])
-        assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+        result = runner.invoke(
+            dirdigest_cli.main_cli,
+            ["--config", config_filename],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"CLI failed. Output: {result.output}"
 
         mock_process_dir.assert_called_once()
         kwargs = mock_process_dir.call_args.kwargs
@@ -189,8 +194,12 @@ class TestConfigLoadingAndMerging:
         }
         self.create_config_file(temp_test_dir, config_filename, config_content)
 
-        result = runner.invoke(dirdigest_cli.main_cli, ["--config", config_filename])
-        assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+        result = runner.invoke(
+            dirdigest_cli.main_cli,
+            ["--config", config_filename],
+            catch_exceptions=False,
+        )
+        assert result.exit_code == 0, f"CLI failed. Output: {result.output}"
 
         mock_process_dir.assert_called_once()
         kwargs = mock_process_dir.call_args.kwargs
@@ -220,7 +229,8 @@ class TestConfigLoadingAndMerging:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
                 ["--config", config_filename, "--max-size", "300"],
-            )  # Provide CLI default for max_size
+                catch_exceptions=False,
+            )
 
         assert result.exit_code == 0  # Should not crash, should run with defaults/CLI
         mock_config_logger_warning.assert_called_once()
@@ -289,10 +299,12 @@ class TestConfigLoadingAndMerging:
             "dirdigest.utils.clipboard.copy_to_clipboard"
         ) as mock_clipboard_copy:
             result = runner.invoke(
-                dirdigest_cli.main_cli, ["--config", config_filename]
+                dirdigest_cli.main_cli,
+                ["--config", config_filename],
+                catch_exceptions=False,
             )
 
-            assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+            assert result.exit_code == 0, f"CLI failed. Output: {result.output}"
 
             # Check arguments passed to the core processing function
             mock_process_dir.assert_called_once()

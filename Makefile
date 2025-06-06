@@ -51,7 +51,7 @@ mypy:
 
 # Run tests with pytest
 test:
-	bash tests/scripts/setup_test_dirs.sh && uv run pytest tests/ && rm -rf tests/fixtures/test_dirs
+	rm -rf tests/fixtures/test_dirs && bash tests/scripts/setup_test_dirs.sh && uv run pytest tests/ && rm -rf tests/fixtures/test_dirs
 
 # Run format, lint, mypy and tests
 validate: format lint mypy test

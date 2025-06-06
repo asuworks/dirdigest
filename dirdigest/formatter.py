@@ -2,7 +2,7 @@
 import json
 import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional # Changed from dict, list to Dict, List
+from typing import Any, Dict, List  # Changed from dict, list to Dict, List
 
 from dirdigest.constants import TOOL_VERSION  # Import TOOL_VERSION
 from dirdigest.core import DigestItemNode, LogEvent  # Import the type hint & LogEvent
@@ -34,16 +34,15 @@ def format_log_event_for_cli(log_event: LogEvent) -> str:
     # Append reason if excluded and reason is present
     if status == "excluded" and reason:
         message += f" ([log.reason]{reason}[/log.reason])"
-    elif status == "error" and reason: # Also show reason for errors
+    elif status == "error" and reason:  # Also show reason for errors
         message += f" ([log.reason]{reason}[/log.reason])"
-
 
     # Append size, formatted to two decimal places
     # Ensure size_kb is float for formatting, handle if it's None or non-numeric gracefully
     try:
         formatted_size = f"{float(size_kb):.2f}"
     except (ValueError, TypeError):
-        formatted_size = "N/A" # Or some other placeholder
+        formatted_size = "N/A"  # Or some other placeholder
     message += f" (Size: {formatted_size}KB)"
 
     return message
