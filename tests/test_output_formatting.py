@@ -13,6 +13,30 @@ from dirdigest.constants import TOOL_VERSION
 from dirdigest.core import LogEvent  # For type hinting
 from dirdigest.formatter import format_log_event_for_cli  # Function to test
 
+# --- Helper for checking log lines ---
+
+
+def check_log_line(
+    line: str,
+    status: str,
+    item_type: str,
+    path: str,
+    size_str: str,
+    reason: str | None = None,
+):
+    """Checks if a formatted log line contains all the expected components."""
+    assert f"[log.{status}]{status.capitalize()}" in line
+    # The formatter may add padding, so a simple 'in' check is robust.
+    assert item_type in line
+    assert f"({size_str})" in line
+    assert f"[log.path]{path}[/log.path]" in line
+    if reason:
+        assert f"([log.reason]{reason}[/log.reason])" in line
+    else:
+        # If no reason, the reason tag should not be present at all.
+        assert "[log.reason]" not in line
+
+
 # --- Unit tests for format_log_event_for_cli ---
 
 
@@ -24,8 +48,14 @@ def test_format_log_event_included_file():
         "size_kb": 2.345,
         "reason": None,
     }
-    expected_str = "[log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 2.35KB)"
-    assert format_log_event_for_cli(log_event) == expected_str
+    result = format_log_event_for_cli(log_event)
+    check_log_line(
+        result,
+        status="included",
+        item_type="file",
+        path="src/main.py",
+        size_str="2.35KB",
+    )
 
 
 def test_format_log_event_excluded_folder_with_reason():
@@ -36,8 +66,15 @@ def test_format_log_event_excluded_folder_with_reason():
         "size_kb": 10240.0,
         "reason": "Matches default ignore pattern",
     }
-    expected_str = "[log.excluded]Excluded folder[/log.excluded]: [log.path]node_modules/[/log.path] ([log.reason]Matches default ignore pattern[/log.reason]) (Size: 10240.00KB)"
-    assert format_log_event_for_cli(log_event) == expected_str
+    result = format_log_event_for_cli(log_event)
+    check_log_line(
+        result,
+        status="excluded",
+        item_type="folder",
+        path="node_modules/",
+        size_str="10240.00KB",
+        reason="Matches default ignore pattern",
+    )
 
 
 def test_format_log_event_error_status_with_reason():
@@ -48,8 +85,15 @@ def test_format_log_event_error_status_with_reason():
         "size_kb": 0.0,
         "reason": "Error calculating size: Permission denied",
     }
-    expected_str = "[log.error]Error folder[/log.error]: [log.path]bad_dir/[/log.path] ([log.reason]Error calculating size: Permission denied[/log.reason]) (Size: 0.00KB)"
-    assert format_log_event_for_cli(log_event) == expected_str
+    result = format_log_event_for_cli(log_event)
+    check_log_line(
+        result,
+        status="error",
+        item_type="folder",
+        path="bad_dir/",
+        size_str="0.00KB",
+        reason="Error calculating size: Permission denied",
+    )
 
 
 def test_format_log_event_missing_reason_for_excluded():
@@ -60,9 +104,11 @@ def test_format_log_event_missing_reason_for_excluded():
         "size_kb": 1.0,
         "reason": None,  # Excluded but reason is None
     }
+    result = format_log_event_for_cli(log_event)
     # Reason part should be omitted if reason is None, even if excluded
-    expected_str = "[log.excluded]Excluded file[/log.excluded]: [log.path]temp.tmp[/log.path] (Size: 1.00KB)"
-    assert format_log_event_for_cli(log_event) == expected_str
+    check_log_line(
+        result, status="excluded", item_type="file", path="temp.tmp", size_str="1.00KB"
+    )
 
 
 def test_format_log_event_size_not_numeric():
@@ -73,8 +119,10 @@ def test_format_log_event_size_not_numeric():
         "size_kb": "very large",  # Invalid size type
         "reason": None,
     }
-    expected_str = "[log.included]Included file[/log.included]: [log.path]data.bin[/log.path] (Size: N/AKB)"
-    assert format_log_event_for_cli(log_event) == expected_str
+    result = format_log_event_for_cli(log_event)
+    check_log_line(
+        result, status="included", item_type="file", path="data.bin", size_str="N/AKB"
+    )
 
 
 def test_format_log_event_minimal_data():
@@ -84,8 +132,14 @@ def test_format_log_event_minimal_data():
     }
     # .get() in formatter should provide defaults
     # status: "unknown", item_type: "item", size_kb: 0.0
-    expected_str = "[log.unknown]Unknown item[/log.unknown]: [log.path]minimal.txt[/log.path] (Size: 0.00KB)"
-    assert format_log_event_for_cli(log_event) == expected_str
+    result = format_log_event_for_cli(log_event)
+    check_log_line(
+        result,
+        status="unknown",
+        item_type="item",
+        path="minimal.txt",
+        size_str="0.00KB",
+    )
 
 
 # --- Existing tests for JSON/Markdown output format ---

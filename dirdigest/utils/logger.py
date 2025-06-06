@@ -59,7 +59,7 @@ def setup_logging(
     elif verbose_level >= 1:  # -v
         console_log_level_name = "INFO"
     else:  # Default operation (no -v, no -q)
-        console_log_level_name = "WARNING"  # Default console logs warnings and above
+        console_log_level_name = "INFO"  # Default console logs warnings and above
 
     # Remove any existing handlers to prevent duplicate logs if setup_logging is called multiple times
     for handler in logger.handlers[:]:

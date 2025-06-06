@@ -1,6 +1,7 @@
 # dirdigest/dirdigest/formatter.py
-import json
 import datetime
+import json
+import re
 from pathlib import Path
 from typing import Any, Dict, List  # Changed from dict, list to Dict, List
 
@@ -11,10 +12,20 @@ from dirdigest.core import DigestItemNode, LogEvent  # Import the type hint & Lo
 Metadata = Dict[str, Any]
 
 
-# New function to format log events for CLI output
+# Regex to strip Rich console tags for length calculation
+# This removes tags like "[log.status]" or "[/log.status]"
+RICH_TAG_RE = re.compile(r"\[/?log\.[^\]]+\]")
+
+# Define the target column for the colon to align
+TARGET_COL = (
+    53  # Choose a column wide enough to accommodate most log event descriptions
+)
+
+
 def format_log_event_for_cli(log_event: LogEvent) -> str:
     """
-    Formats a single log event dictionary into a string for CLI display.
+    Formats a single log event dictionary into a string for CLI display,
+    with alignment based on the colon.
     """
     status = log_event.get("status", "unknown")
     item_type = log_event.get("item_type", "item")
@@ -25,25 +36,39 @@ def format_log_event_for_cli(log_event: LogEvent) -> str:
     # Capitalize status for display
     display_status = status.capitalize()
 
-    # Main message part
-    message = (
-        f"[log.{status}]{display_status} {item_type}[/log.{status}]: "
-        f"[log.path]{path}[/log.path]"
-    )
+    # Determine prefix for item_type based on its value
+    item_type_prefix = "  " if item_type == "file" else ""
+
+    # Prepare size string, formatted to two decimal places
+    try:
+        formatted_size = f"{float(size_kb):.2f}"
+    except (ValueError, TypeError):
+        formatted_size = "N/A"
+
+    # Construct the size part to be inserted
+    size_part = f"[grey39] ({formatted_size}KB)[/grey39]"
+
+    # Construct the left part of the message (before the colon), including Rich tags
+    left_part_with_markup = f"[log.{status}]{display_status} {item_type_prefix}{item_type}{size_part}[/log.{status}]"
+
+    # Calculate the visible length of the left part by stripping Rich tags
+    visible_left_part_content = RICH_TAG_RE.sub("", left_part_with_markup)
+    current_length = len(visible_left_part_content)
+
+    # Calculate padding needed to align the colon
+    padding = ""
+    if current_length < TARGET_COL:
+        padding_length = TARGET_COL - current_length
+        padding = " " * padding_length
+
+    # Main message part, now including padding before the colon
+    message = f"{left_part_with_markup}{padding}: [log.path]{path}[/log.path]"
 
     # Append reason if excluded and reason is present
     if status == "excluded" and reason:
         message += f" ([log.reason]{reason}[/log.reason])"
     elif status == "error" and reason:  # Also show reason for errors
         message += f" ([log.reason]{reason}[/log.reason])"
-
-    # Append size, formatted to two decimal places
-    # Ensure size_kb is float for formatting, handle if it's None or non-numeric gracefully
-    try:
-        formatted_size = f"{float(size_kb):.2f}"
-    except (ValueError, TypeError):
-        formatted_size = "N/A"  # Or some other placeholder
-    message += f" (Size: {formatted_size}KB)"
 
     return message
 
