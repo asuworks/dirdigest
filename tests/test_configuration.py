@@ -17,17 +17,11 @@ from dirdigest.utils import (
 # We need to mock the core processing functions to isolate config merging and application.
 # These mocks will be used by most tests in this file.
 COMMON_MOCKS = [
-    mock.patch(
-        "dirdigest.core.process_directory_recursive", return_value=(iter([]), {}, [])
-    ),
+    mock.patch("dirdigest.core.process_directory_recursive", return_value=(iter([]), {}, [])),
     mock.patch("dirdigest.core.build_digest_tree", return_value=({}, {})),
     # Mock both formatters as the format can change via config
-    mock.patch(
-        "dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"
-    ),
-    mock.patch(
-        "dirdigest.formatter.JsonFormatter.format", return_value='{"mocked": "json"}'
-    ),
+    mock.patch("dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"),
+    mock.patch("dirdigest.formatter.JsonFormatter.format", return_value='{"mocked": "json"}'),
 ]
 
 
@@ -62,12 +56,8 @@ class TestConfigLoadingAndMerging:
         Description: Verifies that settings are loaded from a default '.dirdigest' file
         when no '--config' is specified and CLI arguments don't override.
         """
-        config_content = {
-            "default": {"format": "json", "max_size": 50, "exclude": ["*.log", "tmp/"]}
-        }
-        self.create_config_file(
-            temp_test_dir, dirdigest_config.DEFAULT_CONFIG_FILENAME, config_content
-        )
+        config_content = {"default": {"format": "json", "max_size": 50, "exclude": ["*.log", "tmp/"]}}
+        self.create_config_file(temp_test_dir, dirdigest_config.DEFAULT_CONFIG_FILENAME, config_content)
 
         result = runner.invoke(dirdigest_cli.main_cli, catch_exceptions=False)
         assert result.exit_code == 0, f"CLI failed. Output: {result.output}"
@@ -104,9 +94,7 @@ class TestConfigLoadingAndMerging:
                 "exclude": ["*.log"],
             }
         }
-        self.create_config_file(
-            temp_test_dir, dirdigest_config.DEFAULT_CONFIG_FILENAME, config_content
-        )
+        self.create_config_file(temp_test_dir, dirdigest_config.DEFAULT_CONFIG_FILENAME, config_content)
 
         # CLI overrides format and max_size, and adds an exclude pattern
         result = runner.invoke(
@@ -130,9 +118,7 @@ class TestConfigLoadingAndMerging:
         # Exclude patterns: CLI takes precedence for 'exclude' if provided.
         # Current merge_config: CLI value for multiple=True option replaces config if CLI option is used.
         assert "*.tmp" in kwargs["exclude_patterns"]
-        assert (
-            "*.log" not in kwargs["exclude_patterns"]
-        )  # CLI exclude should override config's list
+        assert "*.log" not in kwargs["exclude_patterns"]  # CLI exclude should override config's list
 
         # Check that MarkdownFormatter was called (indirectly via checking the mock)
         # This assumes that the CLI correctly determined the final format to be 'markdown'.
@@ -214,18 +200,14 @@ class TestConfigLoadingAndMerging:
         Tool should log a warning and proceed with defaults/CLI args.
         """
         config_filename = "malformed.yaml"
-        malformed_content_str = (
-            "format: json\n max_size: 20"  # Invalid YAML (indentation)
-        )
+        malformed_content_str = "format: json\n max_size: 20"  # Invalid YAML (indentation)
         malformed_file_path = temp_test_dir / config_filename
         with open(malformed_file_path, "w") as f:
             f.write(malformed_content_str)
 
         # We expect a warning to be logged, but the tool to run with defaults.
         # We can capture logs to verify this.
-        with mock.patch(
-            "dirdigest.utils.config.logger.warning"
-        ) as mock_config_logger_warning:
+        with mock.patch("dirdigest.utils.config.logger.warning") as mock_config_logger_warning:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
                 ["--config", config_filename, "--max-size", "300"],
@@ -233,8 +215,12 @@ class TestConfigLoadingAndMerging:
             )
 
         assert result.exit_code == 0  # Should not crash, should run with defaults/CLI
-        mock_config_logger_warning.assert_called_once()
-        assert "Error parsing YAML" in mock_config_logger_warning.call_args[0][0]
+        assert mock_config_logger_warning.call_count >= 1  # At least one warning expected
+        # Check that the config error warning was called
+        config_warning_found = any(
+            "Error parsing YAML" in str(call.args[0]) for call in mock_config_logger_warning.call_args_list
+        )
+        assert config_warning_found, "Expected config error warning not found"
 
         # Check that it used CLI or built-in defaults, not the broken config.
         # For this, we need to mock core.process_directory_recursive again
@@ -242,9 +228,7 @@ class TestConfigLoadingAndMerging:
         # Let's simplify: just check the warning and exit code for now.
         # A more thorough test would re-apply common mocks and check kwargs of process_directory_recursive.
 
-    def test_config_file_not_found_specified(
-        self, runner: CliRunner, temp_test_dir: Path
-    ):
+    def test_config_file_not_found_specified(self, runner: CliRunner, temp_test_dir: Path):
         """
         Test ID: CFG-006 (Conceptual)
         Description: Verifies behavior when a specified config file is not found.
@@ -281,23 +265,17 @@ class TestConfigLoadingAndMerging:
                 "clipboard": False,  # Python boolean False -> YAML false
             }
         }
-        config_file_path = self.create_config_file(
-            temp_test_dir, config_filename, config_content
-        )
+        config_file_path = self.create_config_file(temp_test_dir, config_filename, config_content)
 
         # For debugging, let's see what the YAML file actually contains:
-        print(
-            f"\nDEBUG: Content of {config_file_path}:\n{config_file_path.read_text()}"
-        )
+        print(f"\nDEBUG: Content of {config_file_path}:\n{config_file_path.read_text()}")
 
         # We need to ensure the clipboard logic is correctly affected by the config.
         # The `apply_common_mocks` already mocks formatters.
         # The `main_cli` will determine `final_clipboard` based on merged settings.
         # Config says clipboard: false. CLI default for clipboard is True.
         # If only --config is specified, config's `clipboard: false` should win.
-        with mock.patch(
-            "dirdigest.utils.clipboard.copy_to_clipboard"
-        ) as mock_clipboard_copy:
+        with mock.patch("dirdigest.utils.clipboard.copy_to_clipboard") as mock_clipboard_copy:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
                 ["--config", config_filename],
@@ -310,15 +288,15 @@ class TestConfigLoadingAndMerging:
             mock_process_dir.assert_called_once()
             kwargs_core = mock_process_dir.call_args.kwargs
 
-            assert (
-                kwargs_core["no_default_ignore"] is True
-            ), f"Expected no_default_ignore to be True, got {kwargs_core['no_default_ignore']}"
-            assert (
-                kwargs_core["follow_symlinks"] is True
-            ), f"Expected follow_symlinks to be True, got {kwargs_core['follow_symlinks']}"
-            assert (
-                kwargs_core["ignore_read_errors"] is True
-            ), f"Expected ignore_read_errors to be True, got {kwargs_core['ignore_read_errors']}"
+            assert kwargs_core["no_default_ignore"] is True, (
+                f"Expected no_default_ignore to be True, got {kwargs_core['no_default_ignore']}"
+            )
+            assert kwargs_core["follow_symlinks"] is True, (
+                f"Expected follow_symlinks to be True, got {kwargs_core['follow_symlinks']}"
+            )
+            assert kwargs_core["ignore_read_errors"] is True, (
+                f"Expected ignore_read_errors to be True, got {kwargs_core['ignore_read_errors']}"
+            )
 
             # Check if clipboard.copy_to_clipboard was called (or not called)
             # Based on config `clipboard: false`

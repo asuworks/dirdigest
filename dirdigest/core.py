@@ -1,7 +1,7 @@
 # dirdigest/dirdigest/core.py
 import os
 import pathlib
-from typing import Any, Dict, Generator, List, Tuple
+from typing import Any, Dict, Generator, Iterator, List, Tuple
 
 from dirdigest.constants import DEFAULT_IGNORE_PATTERNS
 from dirdigest.utils.logger import logger  # Import the configured logger
@@ -19,9 +19,7 @@ def _get_dir_size(dir_path_obj: pathlib.Path, follow_symlinks: bool) -> float:
     """Recursively calculates the total size of all files within a given directory."""
     total_size_bytes = 0
     try:
-        for root, _, files in os.walk(
-            str(dir_path_obj), topdown=True, followlinks=follow_symlinks
-        ):
+        for root, _, files in os.walk(str(dir_path_obj), topdown=True, followlinks=follow_symlinks):
             for name in files:
                 file_path = pathlib.Path(root) / name
                 # Check if it's a symlink and if we are not following them
@@ -32,9 +30,7 @@ def _get_dir_size(dir_path_obj: pathlib.Path, follow_symlinks: bool) -> float:
                 except OSError as e:
                     logger.warning(f"Could not get size for {file_path}: {e}")
     except OSError as e:
-        logger.warning(
-            f"Could not walk directory {dir_path_obj} for size calculation: {e}"
-        )
+        logger.warning(f"Could not walk directory {dir_path_obj} for size calculation: {e}")
     return round(total_size_bytes / 1024, 3)
 
 
@@ -47,9 +43,7 @@ def process_directory_recursive(
     follow_symlinks: bool,
     max_size_kb: int,
     ignore_read_errors: bool,
-) -> Tuple[
-    Generator[ProcessedItem, None, None], TraversalStats, List[LogEvent]
-]:  # Modified return type
+) -> Tuple[Generator[ProcessedItem, None, None], TraversalStats, List[LogEvent]]:  # Modified return type
     """
     Recursively traverses a directory, filters files and folders,
     and yields processed file items along with collected traversal statistics
@@ -62,34 +56,20 @@ def process_directory_recursive(
     log_events: List[LogEvent] = []  # Initialize log_events list
 
     max_size_bytes = max_size_kb * 1024
-    effective_exclude_patterns = list(
-        exclude_patterns
-    )  # Start with user-defined excludes
+    effective_exclude_patterns = list(exclude_patterns)  # Start with user-defined excludes
     if not no_default_ignore:
         effective_exclude_patterns.extend(DEFAULT_IGNORE_PATTERNS)
 
-    logger.debug(
-        f"Core: Effective exclude patterns count: {len(effective_exclude_patterns)}"
-    )
-    logger.debug(
-        f"Core: Max size KB: {max_size_kb}, Ignore read errors: {ignore_read_errors}"
-    )
-    logger.debug(
-        f"Core: Follow symlinks: {follow_symlinks}, No default ignore: {no_default_ignore}"
-    )
+    logger.debug(f"Core: Effective exclude patterns count: {len(effective_exclude_patterns)}")
+    logger.debug(f"Core: Max size KB: {max_size_kb}, Ignore read errors: {ignore_read_errors}")
+    logger.debug(f"Core: Follow symlinks: {follow_symlinks}, No default ignore: {no_default_ignore}")
 
     def _traverse() -> Generator[ProcessedItem, None, None]:
         """Nested generator function to handle the actual traversal and yielding."""
-        for root, dirs_orig, files_orig in os.walk(
-            str(base_dir_path), topdown=True, followlinks=follow_symlinks
-        ):
+        for root, dirs_orig, files_orig in os.walk(str(base_dir_path), topdown=True, followlinks=follow_symlinks):
             current_root_path = pathlib.Path(root)
             relative_root_path = current_root_path.relative_to(base_dir_path)
-            current_depth = (
-                len(relative_root_path.parts)
-                if relative_root_path != pathlib.Path(".")
-                else 0
-            )
+            current_depth = len(relative_root_path.parts) if relative_root_path != pathlib.Path(".") else 0
 
             # --- Process Files first for the current directory ---
             for file_name in files_orig:
@@ -104,13 +84,9 @@ def process_directory_recursive(
                     if not follow_symlinks and file_path_obj.is_symlink():
                         current_file_size_kb = 0.0
                     else:
-                        current_file_size_kb = round(
-                            file_path_obj.stat().st_size / 1024, 3
-                        )
+                        current_file_size_kb = round(file_path_obj.stat().st_size / 1024, 3)
                 except OSError as e:
-                    logger.warning(
-                        f"Could not stat file {relative_file_path_str} for size: {e}"
-                    )
+                    logger.warning(f"Could not stat file {relative_file_path_str} for size: {e}")
 
                 if not follow_symlinks and file_path_obj.is_symlink():
                     reason_file_excluded = "Is a symlink (symlink following disabled)"
@@ -118,13 +94,9 @@ def process_directory_recursive(
                     reason_file_excluded = "Is a hidden file"
                 elif matches_patterns(relative_file_path_str, exclude_patterns):
                     reason_file_excluded = "Matches user-specified exclude pattern"
-                elif not no_default_ignore and matches_patterns(
-                    relative_file_path_str, DEFAULT_IGNORE_PATTERNS
-                ):
+                elif not no_default_ignore and matches_patterns(relative_file_path_str, DEFAULT_IGNORE_PATTERNS):
                     reason_file_excluded = "Matches default ignore pattern"
-                elif include_patterns and not matches_patterns(
-                    relative_file_path_str, include_patterns
-                ):
+                elif include_patterns and not matches_patterns(relative_file_path_str, include_patterns):
                     reason_file_excluded = "Does not match any include pattern"
 
                 if reason_file_excluded:
@@ -156,9 +128,7 @@ def process_directory_recursive(
                     continue
 
                 try:
-                    with open(
-                        file_path_obj, "r", encoding="utf-8", errors="strict"
-                    ) as f:
+                    with open(file_path_obj, "r", encoding="utf-8", errors="strict") as f:
                         file_attributes["content"] = f.read()
                     file_attributes["read_error"] = None
                 except (OSError, UnicodeDecodeError) as e:
@@ -205,9 +175,7 @@ def process_directory_recursive(
                     reason_dir_excluded = "Is a symlink (symlink following disabled)"
                 elif is_path_hidden(relative_dir_path) and not no_default_ignore:
                     reason_dir_excluded = "Is a hidden directory"
-                elif matches_patterns(
-                    relative_dir_path_str, effective_exclude_patterns
-                ):
+                elif matches_patterns(relative_dir_path_str, effective_exclude_patterns):
                     reason_dir_excluded = "Matches an exclude pattern"
 
                 if reason_dir_excluded:
@@ -242,7 +210,7 @@ def process_directory_recursive(
 
 def build_digest_tree(
     base_dir_path: pathlib.Path,
-    processed_items_generator: Generator[ProcessedItem, None, None],
+    processed_items_generator: Iterator[ProcessedItem],
     initial_stats: TraversalStats,
     # log_events: List[LogEvent] # Potentially pass log_events if needed here
 ) -> Tuple[DigestItemNode, Dict[str, Any]]:
@@ -271,8 +239,7 @@ def build_digest_tree(
                     (
                         child
                         for child in current_level_children
-                        if child["relative_path"] == str(current_path_so_far)
-                        and child["type"] == "folder"
+                        if child["relative_path"] == str(current_path_so_far) and child["type"] == "folder"
                     ),
                     None,
                 )

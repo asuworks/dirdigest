@@ -1,10 +1,11 @@
 # tests/conftest.py
-import pytest
-import shutil
 import os
+import shutil
 from pathlib import Path
-from click.testing import CliRunner
 from unittest import mock
+
+import pytest
+from click.testing import CliRunner
 
 # Define the root for mock directory structures, relative to this conftest.py file
 MOCK_DIRS_ROOT = Path(__file__).parent / "fixtures" / "test_dirs"
@@ -71,12 +72,8 @@ def mock_pyperclip(monkeypatch):
     def custom_pyperclip_paste():
         return mock_paste_object()
 
-    monkeypatch.setattr(
-        "dirdigest.utils.clipboard.pyperclip.copy", custom_pyperclip_copy
-    )
-    monkeypatch.setattr(
-        "dirdigest.utils.clipboard.pyperclip.paste", custom_pyperclip_paste
-    )
+    monkeypatch.setattr("dirdigest.utils.clipboard.pyperclip.copy", custom_pyperclip_copy)
+    monkeypatch.setattr("dirdigest.utils.clipboard.pyperclip.paste", custom_pyperclip_paste)
 
     try:
         import pyperclip

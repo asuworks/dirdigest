@@ -1,7 +1,9 @@
-import yaml
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
 import click
+import yaml
+
 from dirdigest.utils.logger import logger
 
 DEFAULT_CONFIG_FILENAME = ".dirdigest"
@@ -36,14 +38,10 @@ def load_config_file(config_path: Optional[Path] = None) -> Dict[str, Any]:
         # No warning if default config is not found, it's optional.
 
     if not cfg_path_to_load:
-        logger.debug(
-            "Config: No configuration file loaded (neither specified nor default found)."
-        )
+        logger.debug("Config: No configuration file loaded (neither specified nor default found).")
         return {}
 
-    logger.info(
-        f"Config: Loading configuration from [log.path]{cfg_path_to_load}[/log.path]"
-    )
+    logger.info(f"Config: Loading configuration from [log.path]{cfg_path_to_load}[/log.path]")
     try:
         with open(cfg_path_to_load, "r", encoding="utf-8") as f:
             full_config_data = yaml.safe_load(f)
@@ -56,25 +54,17 @@ def load_config_file(config_path: Optional[Path] = None) -> Dict[str, Any]:
             # As per requirements example, look for a 'default' profile.
             # If other profiles exist, they are ignored for now unless a --profile CLI arg is added later.
             # If 'default' key doesn't exist, but the file is a flat dict, use it as is.
-            if "default" in full_config_data and isinstance(
-                full_config_data["default"], dict
-            ):
+            if "default" in full_config_data and isinstance(full_config_data["default"], dict):
                 logger.debug("Config: Loaded 'default' profile.")
                 return full_config_data["default"]
             elif "default" not in full_config_data and all(
-                not isinstance(v, dict)
-                for k, v in full_config_data.items()
-                if k not in ["include", "exclude"]
+                not isinstance(v, dict) for k, v in full_config_data.items() if k not in ["include", "exclude"]
             ):
                 # If no 'default' key and it looks like a flat config (no nested dicts other than include/exclude)
-                logger.debug(
-                    "Config: Loaded as a flat configuration (no 'default' profile found, using root level)."
-                )
+                logger.debug("Config: Loaded as a flat configuration (no 'default' profile found, using root level).")
                 return full_config_data
             elif "default" not in full_config_data and any(
-                isinstance(v, dict)
-                for k, v in full_config_data.items()
-                if k != "default"
+                isinstance(v, dict) for k, v in full_config_data.items() if k != "default"
             ):
                 # Has other profile-like structures but no 'default'
                 logger.warning(
@@ -88,14 +78,10 @@ def load_config_file(config_path: Optional[Path] = None) -> Dict[str, Any]:
                 return {}
 
     except yaml.YAMLError as e:
-        logger.warning(
-            f"Config: Error parsing YAML configuration file [log.path]{cfg_path_to_load}[/log.path]: {e}"
-        )
+        logger.warning(f"Config: Error parsing YAML configuration file [log.path]{cfg_path_to_load}[/log.path]: {e}")
         return {}
     except OSError as e:
-        logger.warning(
-            f"Config: Error reading configuration file [log.path]{cfg_path_to_load}[/log.path]: {e}"
-        )
+        logger.warning(f"Config: Error reading configuration file [log.path]{cfg_path_to_load}[/log.path]: {e}")
         return {}
     except Exception as e:
         logger.error(
@@ -119,9 +105,7 @@ def merge_config(
     :param click_context: The Click context object (ctx).
     :return: A dictionary of the final merged settings.
     """
-    merged_settings = (
-        config_file_settings.copy()
-    )  # Start with config file settings as base
+    merged_settings = config_file_settings.copy()  # Start with config file settings as base
     logger.debug(f"Config: Initial settings from config file: {config_file_settings}")
     logger.debug(f"Config: CLI args received: {cli_args}")
 
@@ -132,26 +116,18 @@ def merge_config(
         # This requires Click 8.0+
         source = click_context.get_parameter_source(key)
 
-        param_is_explicitly_set = (
-            source is not None and source.name != "DEFAULT"
-        )  # Default from click itself
+        param_is_explicitly_set = source is not None and source.name != "DEFAULT"  # Default from click itself
         param_is_default_from_context = (
             source is not None and source.name == "DEFAULT_MAP"
         )  # Default from context obj default_map
 
         # If the CLI value was explicitly provided by user (not a Click default or context default)
         # OR if the key is not in config_file_settings (so CLI default is better than nothing)
-        if param_is_explicitly_set or (
-            key not in merged_settings and not param_is_default_from_context
-        ):
+        if param_is_explicitly_set or (key not in merged_settings and not param_is_default_from_context):
             # Special handling for 'include' and 'exclude' as they are multiple
             # And CLI can have multiple=True flag, which results in a tuple.
             # Config file might have a list.
-            if (
-                key in ["include", "exclude"]
-                and isinstance(cli_value, tuple)
-                and not any(cli_value)
-            ):
+            if key in ["include", "exclude"] and isinstance(cli_value, tuple) and not any(cli_value):
                 # If CLI provided empty tuple (e.g. flag not used), and config has value, prefer config.
                 # This might need refinement: if user explicitly says --include '' (empty), it should override.
                 # Click's multiple=True gives empty tuple if flag not used.
@@ -177,22 +153,12 @@ def merge_config(
         if key in merged_settings:
             current_val = merged_settings[key]
             normalized_patterns: List[str] = []
-            if isinstance(
-                current_val, str
-            ):  # Single comma-separated string from config
-                normalized_patterns.extend(
-                    p.strip() for p in current_val.split(",") if p.strip()
-                )
-            elif isinstance(
-                current_val, (list, tuple)
-            ):  # List from config or tuple from CLI
+            if isinstance(current_val, str):  # Single comma-separated string from config
+                normalized_patterns.extend(p.strip() for p in current_val.split(",") if p.strip())
+            elif isinstance(current_val, (list, tuple)):  # List from config or tuple from CLI
                 for item in current_val:
-                    if isinstance(
-                        item, str
-                    ):  # handles items like "src,tests" within a list
-                        normalized_patterns.extend(
-                            p.strip() for p in item.split(",") if p.strip()
-                        )
+                    if isinstance(item, str):  # handles items like "src,tests" within a list
+                        normalized_patterns.extend(p.strip() for p in item.split(",") if p.strip())
                     # else: ignore non-string items in list/tuple
             merged_settings[key] = normalized_patterns
             logger.debug(f"Config: Normalized '{key}' to: {merged_settings[key]}")
@@ -223,12 +189,8 @@ def merge_config(
                 del merged_settings["sort_output_log_by"]
             else:
                 merged_settings["sort_output_log_by"] = validated_keys
-                logger.debug(
-                    f"Config: Validated 'sort_output_log_by' from config: {validated_keys}"
-                )
-        elif isinstance(
-            sort_keys, tuple
-        ):  # Likely from CLI if it somehow wasn't handled as list by merge logic
+                logger.debug(f"Config: Validated 'sort_output_log_by' from config: {validated_keys}")
+        elif isinstance(sort_keys, tuple):  # Likely from CLI if it somehow wasn't handled as list by merge logic
             # This case should ideally be handled by the main merge loop if CLI provides a tuple
             # but as a safeguard, ensure it's a list of strings.
             # CLI values are already validated by click.Choice.

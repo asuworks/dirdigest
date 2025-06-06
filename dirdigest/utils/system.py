@@ -18,10 +18,7 @@ def is_running_in_wsl() -> bool:
     try:
         with open("/proc/version", "r", encoding="utf-8") as f:
             proc_version_content = f.read()
-            if (
-                "microsoft" in proc_version_content.lower()
-                or "wsl" in proc_version_content.lower()
-            ):
+            if "microsoft" in proc_version_content.lower() or "wsl" in proc_version_content.lower():
                 return True
     except FileNotFoundError:
         pass
@@ -60,9 +57,7 @@ def convert_wsl_path_to_windows(linux_path_str: str) -> str | None:
         )
         return None
     except subprocess.CalledProcessError as e:  # wslpath command failed
-        logger.warning(
-            f"System: 'wslpath -w {resolved_linux_path}' failed: {e.stderr or e.stdout or e}"
-        )
+        logger.warning(f"System: 'wslpath -w {resolved_linux_path}' failed: {e.stderr or e.stdout or e}")
         return None
     except Exception as e:  # Catch any other unexpected errors
         logger.warning(

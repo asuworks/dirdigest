@@ -37,13 +37,13 @@ activate-pre-commit:
 	uv pip install pre-commit --cache-dir .uv_cache
 	uv run pre-commit install
 
-# Format code with Ruff
+# Format code with Ruff (exclude test fixtures)
 format:
-	uv run ruff format .
+	uv run ruff format . --exclude tests/fixtures/
 
-# Lint code with Ruff (auto-fix enabled)
+# Lint code with Ruff (auto-fix enabled, exclude test fixtures)
 lint:
-	uv run ruff check --fix .
+	uv run ruff check --fix . --exclude tests/fixtures/
 
 # Type check with mypy
 mypy:

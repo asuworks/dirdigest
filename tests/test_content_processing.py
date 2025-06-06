@@ -1,12 +1,13 @@
 # tests/test_content_processing.py
 
-from typing import List
-import pytest
 import json
-from click.testing import CliRunner
-from pathlib import Path
-from unittest import mock
 import os  # For os.chmod
+from pathlib import Path
+from typing import List
+from unittest import mock
+
+import pytest
+from click.testing import CliRunner
 
 from dirdigest import cli as dirdigest_cli
 
@@ -35,9 +36,7 @@ def get_all_included_file_paths(json_output_str: str) -> set[str]:
     try:
         data = json.loads(json_output_str)
     except json.JSONDecodeError as e:
-        pytest.fail(
-            f"Output was not valid JSON for helper. Error: {e}. Output: '{json_output_str[:500]}...'"
-        )
+        pytest.fail(f"Output was not valid JSON for helper. Error: {e}. Output: '{json_output_str[:500]}...'")
     included_files = set()
 
     def recurse_node(node):
@@ -65,19 +64,11 @@ class TestMaxSizeHandling:
             str(max_size_kb),
             "--no-clipboard",
         ]
-        with mock.patch(
-            "dirdigest.utils.logger.stdout_console.print"
-        ) as mock_rich_print:
+        with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(dirdigest_cli.main_cli, cli_args)
             if mock_rich_print.call_args_list:
-                json_output_str = "".join(
-                    str(call.args[0])
-                    for call in mock_rich_print.call_args_list
-                    if call.args
-                )
-        assert (
-            result.exit_code == 0
-        ), f"CLI failed for max-size {max_size_kb}. Stderr: {result.stderr}"
+                json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
+        assert result.exit_code == 0, f"CLI failed for max-size {max_size_kb}. Stderr: {result.stderr}"
         return json_output_str
 
     def test_file_below_max_size(self, runner: CliRunner, temp_test_dir: Path):
@@ -85,22 +76,14 @@ class TestMaxSizeHandling:
         included_files = get_all_included_file_paths(json_output)
         assert "small_file.txt" in included_files
         file_node = get_file_node_from_json(json_output, "small_file.txt")
-        assert (
-            file_node is not None
-            and "content" in file_node
-            and file_node["content"] is not None
-        )
+        assert file_node is not None and "content" in file_node and file_node["content"] is not None
 
     def test_file_at_max_size(self, runner: CliRunner, temp_test_dir: Path):
         json_output = self.run_dirdigest_and_get_json(runner, 10)
         included_files = get_all_included_file_paths(json_output)
         assert "exact_size_file.txt" in included_files
         file_node = get_file_node_from_json(json_output, "exact_size_file.txt")
-        assert (
-            file_node is not None
-            and "content" in file_node
-            and file_node["content"] is not None
-        )
+        assert file_node is not None and "content" in file_node and file_node["content"] is not None
 
     def test_file_above_max_size(self, runner: CliRunner, temp_test_dir: Path):
         json_output = self.run_dirdigest_and_get_json(runner, 10)
@@ -147,27 +130,15 @@ class TestErrorHandling:
                 # Remove all permissions: 000
                 os.chmod(file_in_temp_dir, 0o000)
             except OSError as e:
-                pytest.skip(
-                    f"Could not set permissions for {file_in_temp_dir} to test permission denial. Error: {e}"
-                )
+                pytest.skip(f"Could not set permissions for {file_in_temp_dir} to test permission denial. Error: {e}")
 
         try:
-            with mock.patch(
-                "dirdigest.utils.logger.stdout_console.print"
-            ) as mock_rich_print:
+            with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
                 # Important: dirdigest will run in the CWD, which is temp_dir_path
-                result = runner.invoke(
-                    dirdigest_cli.main_cli, base_args
-                )  # Uses current dir (temp_dir_path)
+                result = runner.invoke(dirdigest_cli.main_cli, base_args)  # Uses current dir (temp_dir_path)
                 if mock_rich_print.call_args_list:
-                    json_output_str = "".join(
-                        str(call.args[0])
-                        for call in mock_rich_print.call_args_list
-                        if call.args
-                    )
-            assert (
-                result.exit_code == 0
-            ), f"CLI failed. Args:{base_args}. Stderr: {result.stderr}"
+                    json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
+            assert result.exit_code == 0, f"CLI failed. Args:{base_args}. Stderr: {result.stderr}"
 
             parsed_json = json.loads(json_output_str)
             file_node = get_file_node_from_json(json_output_str, file_to_check)
@@ -175,22 +146,14 @@ class TestErrorHandling:
 
         finally:
             # Restore permissions if they were changed
-            if (
-                make_unreadable
-                and original_permissions is not None
-                and file_in_temp_dir.exists()
-            ):
+            if make_unreadable and original_permissions is not None and file_in_temp_dir.exists():
                 try:
                     os.chmod(file_in_temp_dir, original_permissions)
                 except OSError as e:
                     # Log or note this, but don't fail the test itself if restoration fails
-                    print(
-                        f"Warning: Failed to restore permissions for {file_in_temp_dir}. Error: {e}"
-                    )
+                    print(f"Warning: Failed to restore permissions for {file_in_temp_dir}. Error: {e}")
 
-    def test_permission_denied_no_ignore_errors(
-        self, runner: CliRunner, temp_test_dir: Path
-    ):
+    def test_permission_denied_no_ignore_errors(self, runner: CliRunner, temp_test_dir: Path):
         """Test ID: CPS-005. File with permission error is excluded if --ignore-errors is false (default)."""
         _full_json, file_node = self.run_dirdigest_get_json_and_node(
             runner,
@@ -199,13 +162,9 @@ class TestErrorHandling:
             [],
             make_unreadable=True,
         )
-        assert (
-            file_node is None
-        ), "File with permission error was included when it should be excluded."
+        assert file_node is None, "File with permission error was included when it should be excluded."
 
-    def test_permission_denied_with_ignore_errors(
-        self, runner: CliRunner, temp_test_dir: Path
-    ):
+    def test_permission_denied_with_ignore_errors(self, runner: CliRunner, temp_test_dir: Path):
         """Test ID: CPS-006. File with permission error is included (with error noted) if --ignore-errors is true."""
         _full_json, file_node = self.run_dirdigest_get_json_and_node(
             runner,
@@ -214,50 +173,30 @@ class TestErrorHandling:
             ["--ignore-errors"],
             make_unreadable=True,
         )
-        assert (
-            file_node is not None
-        ), "File with permission error was not included with --ignore-errors."
-        assert (
-            "read_error" in file_node
-        ), "Read error not noted for permission_denied_file."
+        assert file_node is not None, "File with permission error was not included with --ignore-errors."
+        assert "read_error" in file_node, "Read error not noted for permission_denied_file."
         assert file_node.get("content") is None
 
     def test_binary_file_no_ignore_errors(self, runner: CliRunner, temp_test_dir: Path):
         """Test ID: CPS-007. Binary file (decode error) is excluded if --ignore-errors is false."""
-        _full_json, file_node = self.run_dirdigest_get_json_and_node(
-            runner, temp_test_dir, "binary_file.bin", []
-        )
-        assert (
-            file_node is None
-        ), "Binary file was included when it should be excluded due to decode error."
+        _full_json, file_node = self.run_dirdigest_get_json_and_node(runner, temp_test_dir, "binary_file.bin", [])
+        assert file_node is None, "Binary file was included when it should be excluded due to decode error."
 
-    def test_binary_file_with_ignore_errors(
-        self, runner: CliRunner, temp_test_dir: Path
-    ):
+    def test_binary_file_with_ignore_errors(self, runner: CliRunner, temp_test_dir: Path):
         """Test ID: CPS-008. Binary file (decode error) is included (with error noted) if --ignore-errors is true."""
         _full_json, file_node = self.run_dirdigest_get_json_and_node(
             runner, temp_test_dir, "binary_file.bin", ["--ignore-errors"]
         )
-        assert (
-            file_node is not None
-        ), "Binary file was not included with --ignore-errors."
+        assert file_node is not None, "Binary file was not included with --ignore-errors."
         assert "read_error" in file_node, "Read error not noted for binary_file."
-        assert (
-            "UnicodeDecodeError" in file_node["read_error"]
-        ), "Error message should mention UnicodeDecodeError."
+        assert "UnicodeDecodeError" in file_node["read_error"], "Error message should mention UnicodeDecodeError."
         assert file_node.get("content") is None
 
     def test_utf8_chars_file_reading(self, runner: CliRunner, temp_test_dir: Path):
         """Test ID: CPS-009 (Conceptual). Standard UTF-8 file with various characters is read correctly."""
-        _full_json, file_node = self.run_dirdigest_get_json_and_node(
-            runner, temp_test_dir, "utf8_chars.txt", []
-        )
+        _full_json, file_node = self.run_dirdigest_get_json_and_node(runner, temp_test_dir, "utf8_chars.txt", [])
         assert file_node is not None, "UTF-8 test file not included."
-        assert (
-            "read_error" not in file_node
-        ), "UTF-8 test file has unexpected read_error."
-        assert "你好世界" in file_node.get(
-            "content", ""
-        ), "UTF-8 content not read correctly."
+        assert "read_error" not in file_node, "UTF-8 test file has unexpected read_error."
+        assert "你好世界" in file_node.get("content", ""), "UTF-8 content not read correctly."
         assert "Привет" in file_node.get("content", "")
         assert "€αβγ" in file_node.get("content", "")

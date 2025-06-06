@@ -28,9 +28,7 @@ from dirdigest.utils.tokens import approximate_token_count
     context_settings=dict(help_option_names=["-h", "--help"]),
     help="Recursively processes directories and files, creating a structured digest suitable for LLM context ingestion.",
 )
-@click.version_option(
-    version=TOOL_VERSION, prog_name=TOOL_NAME, message="%(prog)s version %(version)s"
-)
+@click.version_option(version=TOOL_VERSION, prog_name=TOOL_NAME, message="%(prog)s version %(version)s")
 @click.pass_context
 @click.argument(
     "directory_arg",
@@ -186,19 +184,11 @@ def main_cli(
 
     cfg_file_values = dirdigest_config.load_config_file(config_path_cli)
     cli_params_for_merge = ctx.params.copy()
-    if (
-        "directory_arg" in cli_params_for_merge
-        and "directory" not in cli_params_for_merge
-    ):
+    if "directory_arg" in cli_params_for_merge and "directory" not in cli_params_for_merge:
         cli_params_for_merge["directory"] = cli_params_for_merge.pop("directory_arg")
-    if (
-        "config_path_cli" in cli_params_for_merge
-        and "config" not in cli_params_for_merge
-    ):
+    if "config_path_cli" in cli_params_for_merge and "config" not in cli_params_for_merge:
         cli_params_for_merge["config"] = cli_params_for_merge.pop("config_path_cli")
-    final_settings = dirdigest_config.merge_config(
-        cli_params_for_merge, cfg_file_values, ctx
-    )
+    final_settings = dirdigest_config.merge_config(cli_params_for_merge, cfg_file_values, ctx)
 
     final_verbose = final_settings.get("verbose", 0)
     final_quiet = final_settings.get("quiet", False)
@@ -206,9 +196,7 @@ def main_cli(
     if isinstance(final_log_file_val, str):
         final_log_file_val = pathlib.Path(final_log_file_val)
 
-    dirdigest_logger.setup_logging(
-        verbose_level=final_verbose, quiet=final_quiet, log_file_path=final_log_file_val
-    )
+    dirdigest_logger.setup_logging(verbose_level=final_verbose, quiet=final_quiet, log_file_path=final_log_file_val)
     log = dirdigest_logger.logger  # Use the globally configured logger
 
     final_directory = final_settings.get("directory", directory_arg)
@@ -232,9 +220,7 @@ def main_cli(
         if isinstance(raw_exclude_patterns, tuple):
             raw_exclude_patterns = list(raw_exclude_patterns)
         elif isinstance(raw_exclude_patterns, str):
-            raw_exclude_patterns = [
-                p.strip() for p in raw_exclude_patterns.split(",") if p.strip()
-            ]
+            raw_exclude_patterns = [p.strip() for p in raw_exclude_patterns.split(",") if p.strip()]
         else:
             raw_exclude_patterns = []
 
@@ -242,9 +228,7 @@ def main_cli(
 
     if final_output_path:
         try:
-            output_file_relative_to_base = final_output_path.resolve().relative_to(
-                final_directory.resolve()
-            )
+            output_file_relative_to_base = final_output_path.resolve().relative_to(final_directory.resolve())
             final_exclude.append(str(output_file_relative_to_base))
             log.info(
                 f"CLI: Automatically excluding output file from processing: [log.path]{output_file_relative_to_base}[/log.path]"
@@ -261,9 +245,7 @@ def main_cli(
     final_follow_symlinks = final_settings.get("follow_symlinks", follow_symlinks)
     final_ignore_errors = final_settings.get("ignore_errors", ignore_errors)
     final_clipboard = final_settings.get("clipboard", clipboard)
-    final_sort_output_log_by = final_settings.get(
-        "sort_output_log_by", sort_output_log_by
-    )
+    final_sort_output_log_by = final_settings.get("sort_output_log_by", sort_output_log_by)
 
     # Handle default sort keys
     if not final_sort_output_log_by:  # Empty tuple or None
@@ -274,15 +256,11 @@ def main_cli(
     log.debug(f"CLI: Final effective settings after merge: {final_settings}")
     log.info(f"CLI: Processing directory: [log.path]{final_directory}[/log.path]")
     if final_output_path:
-        log.info(
-            f"CLI: Output will be written to: [log.path]{final_output_path}[/log.path]"
-        )
+        log.info(f"CLI: Output will be written to: [log.path]{final_output_path}[/log.path]")
     else:
         log.info("CLI: Output will be written to stdout")
     log.info(f"CLI: Format: {final_format.upper()}")
-    log.info(
-        f"CLI: Sorting item log by: {effective_sort_keys}"
-    )  # Log effective sort keys
+    log.info(f"CLI: Sorting item log by: {effective_sort_keys}")  # Log effective sort keys
 
     if final_verbose > 0:  # Keep existing detailed logging for other params
         log.info(f"CLI: Include patterns: {final_include if final_include else 'N/A'}")
@@ -290,25 +268,19 @@ def main_cli(
         log.info(
             f"CLI: Max size: {final_max_size}KB, Max depth: {final_max_depth if final_max_depth is not None else 'unlimited'}"
         )
-        log.info(
-            f"CLI: Default ignores {'DISABLED' if final_no_default_ignore else 'ENABLED'}"
-        )
-        log.info(
-            f"CLI: Follow symlinks: {final_follow_symlinks}, Ignore errors: {final_ignore_errors}"
-        )
+        log.info(f"CLI: Default ignores {'DISABLED' if final_no_default_ignore else 'ENABLED'}")
+        log.info(f"CLI: Follow symlinks: {final_follow_symlinks}, Ignore errors: {final_ignore_errors}")
         log.info(f"CLI: Clipboard: {final_clipboard}")
 
-    processed_items_generator, stats_from_core, log_events_from_core = (
-        core.process_directory_recursive(
-            base_dir_path=final_directory,
-            include_patterns=final_include,
-            exclude_patterns=final_exclude,
-            no_default_ignore=final_no_default_ignore,
-            max_depth=final_max_depth,
-            follow_symlinks=final_follow_symlinks,
-            max_size_kb=final_max_size,
-            ignore_read_errors=final_ignore_errors,
-        )
+    processed_items_generator, stats_from_core, log_events_from_core = core.process_directory_recursive(
+        base_dir_path=final_directory,
+        include_patterns=final_include,
+        exclude_patterns=final_exclude,
+        no_default_ignore=final_no_default_ignore,
+        max_depth=final_max_depth,
+        follow_symlinks=final_follow_symlinks,
+        max_size_kb=final_max_size,
+        ignore_read_errors=final_ignore_errors,
     )
 
     # Consume the generator to a list. This will populate log_events_from_core.
@@ -344,26 +316,18 @@ def main_cli(
         log.debug("CLI: No log events received from core.")
     # --- End Process and print log events ---
 
-    log.info(
-        "\n\nCLI: Building digest tree..."
-    )  # This message now appears after individual logs
+    log.info("\n\nCLI: Building digest tree...")  # This message now appears after individual logs
     root_node, metadata_for_output = core.build_digest_tree(
         final_directory, iter(processed_items_list), stats_from_core
     )
-    log.debug(
-        f"CLI: Digest tree built. Root node children: {len(root_node.get('children', []))}"
-    )
+    log.debug(f"CLI: Digest tree built. Root node children: {len(root_node.get('children', []))}")
     log.debug(f"CLI: Metadata for output: {metadata_for_output}")
 
     selected_formatter: dirdigest_formatter.BaseFormatter
     if final_format.lower() == "json":
-        selected_formatter = dirdigest_formatter.JsonFormatter(
-            final_directory, metadata_for_output
-        )
+        selected_formatter = dirdigest_formatter.JsonFormatter(final_directory, metadata_for_output)
     elif final_format.lower() == "markdown":
-        selected_formatter = dirdigest_formatter.MarkdownFormatter(
-            final_directory, metadata_for_output
-        )
+        selected_formatter = dirdigest_formatter.MarkdownFormatter(final_directory, metadata_for_output)
     else:
         log.critical(f"CLI: Invalid format '{final_format}' encountered. Exiting.")
         ctx.exit(1)
@@ -385,24 +349,16 @@ def main_cli(
 
     try:
         if final_output_path:
-            final_output_path.parent.mkdir(
-                parents=True, exist_ok=True
-            )  # Ensure dir exists
+            final_output_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure dir exists
             with open(final_output_path, "w", encoding="utf-8") as f_out:
                 f_out.write(raw_generated_digest)  # Write the original digest to file
-            log.info(
-                f"CLI: Digest successfully written to [log.path]{final_output_path}[/log.path]"
-            )
+            log.info(f"CLI: Digest successfully written to [log.path]{final_output_path}[/log.path]")
         else:  # stdout
             # Print the potentially newline-appended version
-            dirdigest_logger.stdout_console.print(
-                string_for_stdout_or_clipboard_content, end="", markup=False
-            )
+            dirdigest_logger.stdout_console.print(string_for_stdout_or_clipboard_content, end="", markup=False)
             # The conditional print for newline is now handled by string_for_stdout_or_clipboard_content construction
 
-        generated_digest_content = (
-            raw_generated_digest  # For token counting, use original
-        )
+        generated_digest_content = raw_generated_digest  # For token counting, use original
         output_generation_succeeded = True
 
     except Exception as e:
@@ -412,9 +368,7 @@ def main_cli(
             f"CLI: Error during output formatting or writing. Type: {exc_type_str}, Message: {exc_msg_str}",
             exc_info=True,
         )
-        generated_digest_content = (
-            f"Error generating output: {e}"  # For token counting of error
-        )
+        generated_digest_content = f"Error generating output: {e}"  # For token counting of error
         output_generation_succeeded = False
 
     # --- Clipboard ---
@@ -427,9 +381,7 @@ def main_cli(
             # Path to be copied is the DIRECTORY containing the output file.
             abs_output_file_path = final_output_path.resolve()
             target_dir_to_copy_obj = abs_output_file_path.parent
-            path_str_for_clipboard = str(
-                target_dir_to_copy_obj
-            )  # This is the Linux/local directory path string
+            path_str_for_clipboard = str(target_dir_to_copy_obj)  # This is the Linux/local directory path string
 
             if is_running_in_wsl():
                 log.debug(
@@ -448,56 +400,41 @@ def main_cli(
                     clipboard_log_message = f"CLI: Copied output directory path (original, WSL conversion failed) to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
             else:  # Not in WSL
                 # path_str_for_clipboard is already the Linux/local directory path
-                clipboard_log_message = f"CLI: Copied output directory path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+                clipboard_log_message = (
+                    f"CLI: Copied output directory path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+                )
 
             text_to_copy = path_str_for_clipboard
 
-        elif (
-            not final_output_path
-            and output_generation_succeeded
-            and string_for_stdout_or_clipboard_content
-        ):
+        elif not final_output_path and output_generation_succeeded and string_for_stdout_or_clipboard_content:
             # Output was to stdout, copy the (potentially newline-adjusted) content
             text_to_copy = string_for_stdout_or_clipboard_content
-            clipboard_log_message = (
-                "CLI: Copied generated digest (from stdout) to clipboard."
-            )
+            clipboard_log_message = "CLI: Copied generated digest (from stdout) to clipboard."
 
         elif not output_generation_succeeded:
-            log.warning(
-                "CLI: Output generation failed (see error above), not copying to clipboard."
-            )
+            log.warning("CLI: Output generation failed (see error above), not copying to clipboard.")
             # clipboard_log_message remains the default or previous state, not critical here
         else:  # Output succeeded but content was empty (e.g. for stdout) or other edge case
-            log.debug(
-                "CLI: Clipboard enabled, but output was empty or not suitable for copying (e.g. empty stdout)."
-            )
+            log.debug("CLI: Clipboard enabled, but output was empty or not suitable for copying (e.g. empty stdout).")
             # clipboard_log_message remains the default or previous state
 
         # Perform the copy operation
         if text_to_copy:
             # Added explicit debug before copying
-            log.debug(
-                f"CLI_Clipboard_DEBUG: Attempting to copy. Text: '{text_to_copy}'"
-            )
+            log.debug(f"CLI_Clipboard_DEBUG: Attempting to copy. Text: '{text_to_copy}'")
             if dirdigest_clipboard.copy_to_clipboard(text_to_copy):
                 # Log the specific message determined above only on successful copy
                 if (
-                    clipboard_log_message
-                    and clipboard_log_message != "CLI: Clipboard processing initiated."
+                    clipboard_log_message and clipboard_log_message != "CLI: Clipboard processing initiated."
                 ):  # Ensure it was updated
                     log.info(clipboard_log_message)
                 else:  # Should not happen if text_to_copy was set
-                    log.info(
-                        "CLI: Content/path copied to clipboard successfully (generic message)."
-                    )
+                    log.info("CLI: Content/path copied to clipboard successfully (generic message).")
             # else: copy_to_clipboard already logs its own failure
         elif final_clipboard and output_generation_succeeded and not text_to_copy:
             # This case handles if output_generation_succeeded but text_to_copy ended up empty
             # (e.g. empty digest from stdout, or if final_output_path was somehow root '/')
-            log.debug(
-                "CLI: Clipboard copy enabled, but there was nothing to copy (e.g., empty digest or root path)."
-            )
+            log.debug("CLI: Clipboard copy enabled, but there was nothing to copy (e.g., empty digest or root path).")
 
     else:  # final_clipboard is False
         log.debug("CLI: Clipboard copy disabled by user.")
@@ -505,20 +442,14 @@ def main_cli(
 
     execution_time = time.monotonic() - start_time
     inc_count = metadata_for_output.get("included_files_count", 0)
-    exc_count = metadata_for_output.get(
-        "excluded_items_count", 0
-    )  # This key is now consistent from core.py
+    exc_count = metadata_for_output.get("excluded_items_count", 0)  # This key is now consistent from core.py
     total_size = metadata_for_output.get("total_content_size_kb", 0.0)
 
     approx_tokens = 0
-    if (
-        output_generation_succeeded and generated_digest_content
-    ):  # Use original content for tokens
+    if output_generation_succeeded and generated_digest_content:  # Use original content for tokens
         approx_tokens = approximate_token_count(generated_digest_content)
 
-    log.info(
-        "\n\n[bold blue]============================== SUMMARY ============================== [/bold blue]\n\n"
-    )
+    log.info("\n\n[bold blue]============================== SUMMARY ============================== [/bold blue]\n\n")
     log.info(
         f"[log.summary_key]Total files included:[/log.summary_key] [log.summary_value_inc]{inc_count}[/log.summary_value_inc]"
     )
@@ -552,15 +483,11 @@ def main_cli(
 
         log.debug("CLI: --- Generated Data Tree (Debug from CLI) ---")
         try:
-            json_tree_str = json_debugger.dumps(
-                root_node, indent=2, default=json_default_serializer
-            )
+            json_tree_str = json_debugger.dumps(root_node, indent=2, default=json_default_serializer)
             escaped_json_string = escape(json_tree_str)
             log.debug(escaped_json_string, extra={"markup": False})
         except TypeError as e:
-            log.debug(
-                f"CLI: Error serializing data tree to JSON for debug: {escape(str(e))}"
-            )
+            log.debug(f"CLI: Error serializing data tree to JSON for debug: {escape(str(e))}")
         log.debug("CLI: --- End Generated Data Tree ---")
 
 
@@ -569,9 +496,7 @@ if __name__ == "__main__":
 
 
 # Helper function for sorting log events (to be defined or placed appropriately)
-def _sort_log_events(
-    log_events: List[LogEvent], sort_keys: List[str]
-) -> List[LogEvent]:
+def _sort_log_events(log_events: List[LogEvent], sort_keys: List[str]) -> List[LogEvent]:
     """Sorts log events based on a list of sort keys."""
 
     if not log_events:
@@ -641,11 +566,7 @@ def _sort_log_events(
             # Excluded < Included < Error (alphabetical also works if "error" is used)
             # Python's sort is stable.
             mutable_log_events.sort(
-                key=lambda x: (
-                    {"excluded": 0, "included": 1, "error": 2}.get(
-                        x.get("status", "unknown"), 3
-                    )
-                )
+                key=lambda x: ({"excluded": 0, "included": 1, "error": 2}.get(x.get("status", "unknown"), 3))
             )
         elif sort_key == "size":
             # Descending size

@@ -17,9 +17,7 @@ Metadata = Dict[str, Any]
 RICH_TAG_RE = re.compile(r"\[/?log\.[^\]]+\]")
 
 # Define the target column for the colon to align
-TARGET_COL = (
-    53  # Choose a column wide enough to accommodate most log event descriptions
-)
+TARGET_COL = 53  # Choose a column wide enough to accommodate most log event descriptions
 
 
 def format_log_event_for_cli(log_event: LogEvent) -> str:
@@ -113,17 +111,13 @@ class BaseFormatter:
         Adjusted to handle the structure from build_digest_tree.
         """
         lines = []
-        node_display_name = (
-            Path(node["relative_path"]).name if node["relative_path"] != "." else "."
-        )
+        node_display_name = Path(node["relative_path"]).name if node["relative_path"] != "." else "."
 
         # For the root, we don't add it with indent/prefix here, it's handled by the caller or initial line.
         # This function is more for rendering children of a node.
         # However, the current MarkdownFormatter calls it with the root node.
         # Let's adjust: if it's the root, just print its name.
-        if (
-            indent == "" and node_display_name == "."
-        ):  # Special handling for the first call with root
+        if indent == "" and node_display_name == ".":  # Special handling for the first call with root
             lines.append(node_display_name)
         # else: # This would be for rendering a node that's already prefixed by its parent
         #     lines.append(f"{indent}{node_display_name}") # This line is redundant if called as designed below
@@ -143,17 +137,13 @@ class BaseFormatter:
                     lines.append(f"{indent}{prefix}{child_display_name}/")
                     # Pass the indent for the children of this child_node
                     lines.extend(
-                        self._generate_directory_structure_string(
-                            child_node, indent + child_indent_continuation
-                        )
+                        self._generate_directory_structure_string(child_node, indent + child_indent_continuation)
                     )
                 else:  # file
                     lines.append(f"{indent}{prefix}{child_display_name}")
         return lines
 
-    def _collect_file_contents_for_markdown(
-        self, node: DigestItemNode, files_list: List
-    ) -> None:
+    def _collect_file_contents_for_markdown(self, node: DigestItemNode, files_list: List) -> None:
         """
         Recursively collects file paths and contents for Markdown output.
         Ensures files are collected in a sorted order (traversal order).
@@ -192,13 +182,9 @@ class JsonFormatter(BaseFormatter):
         output_data = {"metadata": self.final_metadata, "root": data_tree}
 
         def default_serializer(obj):
-            if isinstance(
-                obj, Path
-            ):  # Should not be in data_tree, but good for metadata
+            if isinstance(obj, Path):  # Should not be in data_tree, but good for metadata
                 return str(obj)
-            raise TypeError(
-                f"Object of type {obj.__class__.__name__} is not JSON serializable"
-            )
+            raise TypeError(f"Object of type {obj.__class__.__name__} is not JSON serializable")
 
         return json.dumps(output_data, indent=2, default=default_serializer)
 
@@ -245,9 +231,7 @@ class MarkdownFormatter(BaseFormatter):
             md_lines.append("\n*No files with content to display.*")
         else:
             for file_info in collected_files:
-                md_lines.append(
-                    f"\n### `./{file_info['relative_path']}`"
-                )  # Ensure ./ prefix
+                md_lines.append(f"\n### `./{file_info['relative_path']}`")  # Ensure ./ prefix
                 lang_hint = file_info["lang_hint"] if file_info["lang_hint"] else ""
                 md_lines.append(f"```{lang_hint}")
                 md_lines.append(file_info["content"])

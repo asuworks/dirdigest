@@ -70,9 +70,7 @@ def setup_logging(
     # This handler's level determines what from the DEBUG-level logger stream gets to the console.
     console_handler = RichHandler(
         console=stderr_console,
-        level=logging.getLevelName(
-            console_log_level_name
-        ),  # Set handler level from determined name
+        level=logging.getLevelName(console_log_level_name),  # Set handler level from determined name
         show_time=False,  # Keep console logs concise
         show_path=False,  # Path is usually part of the message or not needed for console
         markup=True,  # Enable Rich markup in log messages
@@ -87,9 +85,7 @@ def setup_logging(
             # Ensure the directory for the log file exists if it's in a subdirectory
             log_file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            file_handler = logging.FileHandler(
-                str(log_file_path), mode="w", encoding="utf-8"
-            )
+            file_handler = logging.FileHandler(str(log_file_path), mode="w", encoding="utf-8")
             # File handler can have its own level, e.g., always DEBUG for the file
             file_handler.setLevel(logging.DEBUG)
 

@@ -25,7 +25,22 @@ dev = [
     "ruff",
     "pytest>=7.0",
     "mypy>=1.0",
+    "pre-commit>=4.2.0",
 ]
+
+[tool.ruff]
+line-length = 120
+lint.extend-select = ["I"] # For isort compatibility
+lint.ignore = ["E402", "E722", "F841"]
+exclude = ["tests/fixtures/"]
+
+[tool.isort]
+line_length = 120
+multi_line_output = 0
+include_trailing_comma = false
+force_grid_wrap = 0
+use_parentheses = false
+
 
 [build-system]
 requires = ["setuptools>=42", "wheel"]

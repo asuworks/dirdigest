@@ -1,0 +1,25 @@
+{
+    "name": "dirdigest-dev",
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    "postCreateCommand": "chmod +x .devcontainer/setup.sh && .devcontainer/setup.sh",
+    "customizations": {
+        "vscode": {
+            "settings": {
+                "terminal.integrated.defaultProfile.linux": "bash",
+                "python.defaultInterpreterPath": "./.venv/bin/python",
+                "python.terminal.activateEnvironment": true
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "ms-python.flake8",
+                "charliermarsh.ruff"
+            ]
+        }
+    },
+    "remoteEnv": {
+        "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
+    }
+}

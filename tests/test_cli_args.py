@@ -58,9 +58,7 @@ def test_cli_basic_invocation_no_args(runner: CliRunner, temp_test_dir):
     with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
         result = runner.invoke(dirdigest_cli.main_cli)
 
-        assert (
-            result.exit_code == 0
-        ), f"CLI failed with output:\n{result.output}\nStderr:\n{result.stderr}"
+        assert result.exit_code == 0, f"CLI failed with output:\n{result.output}\nStderr:\n{result.stderr}"
 
         printed_output_segments = []
         for call_args_item in mock_rich_print.call_args_list:
@@ -69,14 +67,10 @@ def test_cli_basic_invocation_no_args(runner: CliRunner, temp_test_dir):
         actual_stdout_content = "".join(printed_output_segments)
 
         assert actual_stdout_content is not None, "stdout_console.print was not called"
-        assert (
-            len(actual_stdout_content) > 0
-        ), "stdout_console.print was called with empty string or not captured"
+        assert len(actual_stdout_content) > 0, "stdout_console.print was called with empty string or not captured"
         assert "# Directory Digest" in actual_stdout_content
         assert "file1.txt" in actual_stdout_content
-        assert (
-            "file2.md" in actual_stdout_content
-        )  # Based on last passing test run output
+        assert "file2.md" in actual_stdout_content  # Based on last passing test run output
         assert "sub_dir1/script.py" in actual_stdout_content
 
 
@@ -144,9 +138,7 @@ def test_cli_format_json_option(runner: CliRunner, temp_test_dir: Path):
     output_filename = "digest.json"
     output_file_path = Path(output_filename)
 
-    result = runner.invoke(
-        dirdigest_cli.main_cli, ["--format", "json", "--output", output_filename]
-    )
+    result = runner.invoke(dirdigest_cli.main_cli, ["--format", "json", "--output", output_filename])
     assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
 
     assert output_file_path.exists()
@@ -166,10 +158,7 @@ def test_cli_format_json_option(runner: CliRunner, temp_test_dir: Path):
     found_file = False
     if "children" in data["root"]:
         for child in data["root"]["children"]:
-            if (
-                child.get("type") == "file"
-                and child.get("relative_path") == "file1.txt"
-            ):
+            if child.get("type") == "file" and child.get("relative_path") == "file1.txt":
                 found_file = True
                 break
     assert found_file, "Expected file 'file1.txt' not found in JSON root children."
@@ -191,9 +180,7 @@ def test_cli_invalid_format_option(runner: CliRunner, temp_test_dir: Path):
 
 @mock.patch("dirdigest.core.process_directory_recursive")
 @mock.patch("dirdigest.core.build_digest_tree")
-@mock.patch(
-    "dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"
-)
+@mock.patch("dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown")
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
 def test_cli_include_option_parsing(
     mock_md_format,
@@ -223,9 +210,7 @@ def test_cli_include_option_parsing(
 
 @mock.patch("dirdigest.core.process_directory_recursive")
 @mock.patch("dirdigest.core.build_digest_tree", return_value=({}, {}))
-@mock.patch(
-    "dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"
-)
+@mock.patch("dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown")
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
 def test_cli_exclude_option_parsing_comma_separated(
     mock_md_format,
@@ -254,9 +239,7 @@ def test_cli_exclude_option_parsing_comma_separated(
 
 @mock.patch("dirdigest.core.process_directory_recursive")
 @mock.patch("dirdigest.core.build_digest_tree", return_value=({}, {}))
-@mock.patch(
-    "dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"
-)
+@mock.patch("dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown")
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
 def test_cli_max_size_option_parsing(
     mock_md_format,
@@ -281,9 +264,7 @@ def test_cli_max_size_option_parsing(
 
 @mock.patch("dirdigest.core.process_directory_recursive")
 @mock.patch("dirdigest.core.build_digest_tree", return_value=({}, {}))
-@mock.patch(
-    "dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"
-)
+@mock.patch("dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown")
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
 def test_cli_max_depth_option_parsing(
     mock_md_format,
@@ -316,9 +297,7 @@ def test_cli_max_depth_option_parsing(
 )
 @mock.patch("dirdigest.core.process_directory_recursive")
 @mock.patch("dirdigest.core.build_digest_tree", return_value=({}, {}))
-@mock.patch(
-    "dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown"
-)
+@mock.patch("dirdigest.formatter.MarkdownFormatter.format", return_value="Mocked Markdown")
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
 def test_cli_boolean_flags_for_core(
     mock_md_format,
@@ -347,9 +326,7 @@ def test_cli_boolean_flags_for_core(
 
 @mock.patch("dirdigest.utils.clipboard.pyperclip.copy")  # Mock the actual copy action
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
-def test_cli_no_clipboard_option(
-    mock_pyperclip_copy, runner: CliRunner, temp_test_dir: Path
-):
+def test_cli_no_clipboard_option(mock_pyperclip_copy, runner: CliRunner, temp_test_dir: Path):
     """
     Test ID: CLI-016 (Conceptual)
     Description: Verifies that using the '--no-clipboard' option prevents the
@@ -378,9 +355,7 @@ def test_cli_clipboard_copies_dir_path_when_output_file_not_in_wsl(
     output_filename = "my_digest_output.md"
     output_file_path = Path(output_filename)  # Relative to temp_test_dir (CWD)
 
-    result = runner.invoke(
-        dirdigest_cli.main_cli, ["--output", output_filename, "--clipboard"]
-    )
+    result = runner.invoke(dirdigest_cli.main_cli, ["--output", output_filename, "--clipboard"])
     assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
 
     expected_dir_path_copied = str(output_file_path.resolve().parent)
@@ -409,14 +384,11 @@ def test_cli_clipboard_copies_wsl_dir_path_when_output_file_in_wsl(
     # Mock the WSL converted path for this directory
     # Example: if temp_test_dir (linux_abs_dir_path) is /tmp/pytest-of-user/pytest-0/simple_project0
     # then mock_wsl_converted_dir_path could be \\wsl$\Ubuntu\tmp\pytest-of-user\pytest-0\simple_project0
-    mock_wsl_converted_dir_path = (
-        f"\\\\wsl$\\DistroName{linux_abs_dir_path.replace('/', '\\\\')}"
-    )
+    escaped_path = linux_abs_dir_path.replace("/", "\\\\")
+    mock_wsl_converted_dir_path = f"\\\\wsl$\\DistroName{escaped_path}"
     mock_convert_wsl_path.return_value = mock_wsl_converted_dir_path
 
-    result = runner.invoke(
-        dirdigest_cli.main_cli, ["--output", output_filename, "--clipboard"]
-    )
+    result = runner.invoke(dirdigest_cli.main_cli, ["--output", output_filename, "--clipboard"])
     assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
 
     mock_convert_wsl_path.assert_called_once_with(linux_abs_dir_path)
@@ -438,9 +410,7 @@ def test_cli_clipboard_wsl_dir_path_conversion_fails_copies_linux_dir_path(
     output_filename = "wsl_fail_output.md"
     output_file_path = Path(output_filename)
 
-    result = runner.invoke(
-        dirdigest_cli.main_cli, ["--output", output_filename, "--clipboard"]
-    )
+    result = runner.invoke(dirdigest_cli.main_cli, ["--output", output_filename, "--clipboard"])
     assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
 
     expected_linux_abs_dir_path_copied = str(output_file_path.resolve().parent)
@@ -465,9 +435,7 @@ def test_cli_clipboard_copies_content_when_no_output_file(
         else:  # if end has some other value, append text and that end value.
             captured_stdout_content += text + kwargs["end"]
 
-    with mock.patch(
-        "dirdigest.utils.logger.stdout_console.print", side_effect=capture_print_arg
-    ):
+    with mock.patch("dirdigest.utils.logger.stdout_console.print", side_effect=capture_print_arg):
         result = runner.invoke(dirdigest_cli.main_cli, ["--clipboard"])
 
     assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"

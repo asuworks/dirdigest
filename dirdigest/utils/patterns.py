@@ -1,7 +1,7 @@
 # dirdigest/utils/patterns.py
 import fnmatch
-from pathlib import Path
 import os
+from pathlib import Path
 from typing import List  # Ensure List is imported
 
 
@@ -20,15 +20,11 @@ def matches_pattern(path_str: str, pattern_str: str) -> bool:
     if norm_pattern.endswith("/"):
         # Extract the core directory name/pattern to match against path components.
         # e.g., "node_modules/", "**/__pycache__/", "*.egg-info/"
-        dir_target_name_pattern = norm_pattern.rstrip(
-            "/"
-        )  # "node_modules", "**/__pycache__", "*.egg-info"
+        dir_target_name_pattern = norm_pattern.rstrip("/")  # "node_modules", "**/__pycache__", "*.egg-info"
 
         if dir_target_name_pattern.startswith("**/"):
             # If "**/dirname", the part to match against components is "dirname"
-            dir_target_name_pattern = dir_target_name_pattern[
-                3:
-            ]  # "__pycache__" or "dirname"
+            dir_target_name_pattern = dir_target_name_pattern[3:]  # "__pycache__" or "dirname"
 
         # Now, dir_target_name_pattern is something like "node_modules", "__pycache__", "*.egg-info"
         # Check if any component (directory name) in path_obj.parts matches this dir_target_name_pattern.
@@ -45,9 +41,7 @@ def matches_pattern(path_str: str, pattern_str: str) -> bool:
         if norm_pattern.startswith("**/"):
             # For patterns like "**/*.log" or "**/exact_filename.txt"
             # These should match against the base name of the path_obj.
-            file_target_basename_pattern = norm_pattern[
-                3:
-            ]  # "*.log" or "exact_filename.txt"
+            file_target_basename_pattern = norm_pattern[3:]  # "*.log" or "exact_filename.txt"
             return fnmatch.fnmatch(path_obj.name, file_target_basename_pattern)
         else:
             # For patterns like "*.py", "README.md", or "data/*.csv".
@@ -74,6 +68,4 @@ def is_path_hidden(path_obj: Path) -> bool:
     """
     # Path(".").parts is ('.',), Path(".git").parts is ('.git',)
     # Path("src/.config").parts is ("src", ".config")
-    return any(
-        part.startswith(".") for part in path_obj.parts if part not in (".", os.sep)
-    )
+    return any(part.startswith(".") for part in path_obj.parts if part not in (".", os.sep))
