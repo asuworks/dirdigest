@@ -140,6 +140,7 @@ The following table lists the command-line options and their corresponding keys 
 | `--quiet`                     | `-q`  | `quiet`                 | Suppress all console output below ERROR level. Overrides `-v`.                                                                                                          | `False`            |
 | `--log-file PATH`             |       | `log_file`              | Path to a file for detailed logging. All logs (including DEBUG level) will be written here, regardless of console verbosity.                                           | `None`             |
 | `--config PATH`               |       | N/A                     | Specify configuration file path. If omitted, tries to load `./.dirdigest`. Not set within the config file itself.                                                        | `None`             |
+| `--sort-output-log-by KEY`    |       | `sort_output_log_by`    | Sort the detailed item-by-item log output (shown with `-v` or `-vv`). Valid keys: `status`, `size`, `path`. Can be used multiple times (e.g., `-vv --sort-output-log-by status --sort-output-log-by size`). | `status, size`     |
 | `--version`                   |       | N/A                     | Show the version of `dirdigest` and exit.                                                                                                                               | N/A                |
 | `--help`                      | `-h`  | N/A                     | Show this help message and exit.                                                                                                                                        | N/A                |
 
@@ -233,6 +234,7 @@ default:
     - "**/__pycache__/" # More specific than default if needed
     - "node_modules/"
     - ".venv/"
+    # - sort_output_log_by: ["status", "size"] # Example: sort verbose log by status then size
     - "dist/"
     - "build/"
 
@@ -310,6 +312,66 @@ default:
     dirdigest . -vv --log-file processing_details.log
     ```
     Check `processing_details.log` for detailed DEBUG messages about each file and directory encountered.
+
+### Understanding the Verbose Output Log
+
+When you use `-v` (INFO) or `-vv` (DEBUG) flags, `dirdigest` provides a detailed log of each file and folder it processes. This log has been enhanced:
+
+*   **Item Sizes:** Each logged file and folder now displays its size in kilobytes (KB). For folders, this size represents the total sum of all included files within that folder and its subfolders.
+    *   Example: `[log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 2.52KB)`
+    *   Example: `[log.included]Included folder[/log.included]: [log.path]src/[/log.path] (Size: 120.75KB)`
+*   **Default Sorting:** By default, this verbose log output is sorted to group excluded items before included items.
+    *   Within the "excluded" group: folders are listed first (alphabetically by path), then files (by size descending, then path alphabetically).
+    *   Within the "included" group: folders are listed first (alphabetically by path), then files (by size descending, then path alphabetically).
+*   **Headers:** When sorted this way (the default, or any sort involving `status` or `size`), headers are printed:
+    *   `--- EXCLUDED ITEMS ---` (style: bold yellow)
+    *   `--- INCLUDED ITEMS ---` (style: bold green)
+*   **Custom Sorting with `--sort-output-log-by`:**
+    *   Use this option to change the sort order of the verbose log.
+    *   Valid keys:
+        *   `status`: Groups by status (excluded items first, then included, then errors).
+        *   `size`: Sorts by size in descending order (largest first).
+        *   `path`: Sorts alphabetically by relative path.
+    *   You can specify multiple keys for hierarchical sorting. For example, `--sort-output-log-by status --sort-output-log-by path` will group by status, and then sort by path within each status group.
+    *   The default sort order is equivalent to `--sort-output-log-by status --sort-output_log-by size`.
+    *   If you sort *only* by `path` (e.g., `dirdigest . -v --sort-output-log-by path`), the "EXCLUDED ITEMS" and "INCLUDED ITEMS" headers will not be shown, and all items will be listed in a single block sorted by path.
+*   **YAML Configuration for Sorting:** You can set default sort keys in your `.dirdigest` file:
+    ```yaml
+    # .dirdigest
+    default:
+      # ... other settings ...
+      sort_output_log_by: ["path"] # Example: make path-only sort the default
+    ```
+
+**Example Verbose Output (default sort):**
+```
+$ dirdigest . -v
+INFO     : Processing directory: .
+INFO     : Output will be written to stdout
+INFO     : Format: MARKDOWN
+INFO     : Sorting item log by: ['status', 'size']
+INFO     : [bold yellow]--- EXCLUDED ITEMS ---[/bold yellow]
+INFO     : [log.excluded]Excluded folder[/log.excluded]: [log.path].git[/log.path] ([log.reason]Matches default ignore pattern[/log.reason]) (Size: 15.30KB)
+INFO     : [log.excluded]Excluded file[/log.excluded]: [log.path].hidden_file[/log.path] ([log.reason]Is a hidden file[/log.reason]) (Size: 0.02KB)
+INFO     : [bold green]--- INCLUDED ITEMS ---[/bold green]
+INFO     : [log.included]Included folder[/log.included]: [log.path]src[/log.path] (Size: 8.75KB)
+INFO     : [log.included]Included folder[/log.included]: [log.path]data[/log.path] (Size: 20.10KB)
+INFO     : [log.included]Included file[/log.included]: [log.path]data/big_file.dat[/log.path] (Size: 20.00KB)
+INFO     : [log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 5.50KB)
+INFO     : [log.included]Included file[/log.included]: [log.path]README.md[/log.path] (Size: 2.00KB)
+INFO     : [log.included]Included file[/log.included]: [log.path]src/utils.py[/log.path] (Size: 1.25KB)
+INFO     : [log.included]Included file[/log.included]: [log.path]data/small_file.txt[/log.path] (Size: 0.10KB)
+INFO     : Building digest tree...
+# Directory Digest: /path/to/your/project
+... (rest of Markdown output) ...
+INFO     : ------------------------------ SUMMARY ------------------------------
+INFO     : Total files included: 4
+INFO     : Total items excluded (files/dirs): 2
+INFO     : Total content size: 28.85 KB
+INFO     : Approx. Token Count: ...
+INFO     : Execution time: ... seconds
+INFO     : -------------------------------------------------------------------
+```
 
 ## Development Setup
 

@@ -8,10 +8,27 @@ from dirdigest.utils.patterns import matches_patterns, is_path_hidden
 from dirdigest.utils.logger import logger  # Import the configured logger
 
 # Type hints for clarity
+LogEvent = Dict[str, Any] # Added type hint for log events
 DigestItemNode = Dict[str, Any]
 ProcessedItemPayload = Dict[str, Any]
 ProcessedItem = Tuple[pathlib.Path, str, ProcessedItemPayload]
 TraversalStats = Dict[str, int]
+
+
+def _get_dir_size(dir_path_obj: pathlib.Path, follow_symlinks: bool) -> float:
+    """Recursively calculates the total size of all files within a given directory."""
+    total_size_bytes = 0
+    for root, _, files in os.walk(str(dir_path_obj), topdown=True, followlinks=follow_symlinks):
+        for name in files:
+            file_path = pathlib.Path(root) / name
+            # Check if it's a symlink and if we are not following them
+            if not follow_symlinks and file_path.is_symlink():
+                continue
+            try:
+                total_size_bytes += file_path.stat().st_size
+            except OSError as e:
+                logger.warning(f"Could not get size for {file_path}: {e}")
+    return round(total_size_bytes / 1024, 3)
 
 
 def process_directory_recursive(
@@ -23,15 +40,17 @@ def process_directory_recursive(
     follow_symlinks: bool,
     max_size_kb: int,
     ignore_read_errors: bool,
-) -> Tuple[Generator[ProcessedItem, None, None], TraversalStats]:
+) -> Tuple[Generator[ProcessedItem, None, None], TraversalStats, List[LogEvent]]: # Modified return type
     """
     Recursively traverses a directory, filters files and folders,
-    and yields processed file items along with collected traversal statistics.
+    and yields processed file items along with collected traversal statistics
+    and a list of log events.
     """
     stats: TraversalStats = {
         "included_files_count": 0,
         "excluded_items_count": 0,
     }
+    log_events: List[LogEvent] = [] # Initialize log_events list
 
     max_size_bytes = max_size_kb * 1024
     effective_exclude_patterns = list(
@@ -62,25 +81,22 @@ def process_directory_recursive(
                 if relative_root_path != pathlib.Path(".")
                 else 0
             )
-            logger.debug(
-                f"Walking: [log.path]{current_root_path}[/log.path], "
-                f"Rel: [log.path]{relative_root_path}[/log.path], Depth: {current_depth}"
-            )
-
+            # logger.debug removed to reduce noise, event list will capture this
             # --- Depth Filtering ---
             if max_depth is not None and current_depth >= max_depth:
-                logger.info(
-                    f"Max depth ({max_depth}) reached at [log.path]{relative_root_path}[/log.path], "
-                    f"pruning its {len(dirs_orig)} subdirectories."
-                )
+                # logger.info removed
                 if dirs_orig:
                     stats["excluded_items_count"] += len(dirs_orig)
                     for pruned_dir_name in dirs_orig:
-                        logger.debug(
-                            f"[log.excluded]Excluded (due to depth)[/log.excluded]: "
-                            f"[log.path]{relative_root_path / pruned_dir_name}[/log.path] "
-                            f"([log.reason]Exceeds max depth[/log.reason])"
-                        )
+                        pruned_dir_path_rel = relative_root_path / pruned_dir_name
+                        log_events.append({
+                            "path": str(pruned_dir_path_rel),
+                            "item_type": "folder",
+                            "status": "excluded",
+                            "size_kb": 0.0, # Size not calculated for pruned dirs
+                            "reason": "Exceeds max depth",
+                        })
+                        # logger.debug removed
                 dirs_orig[:] = []  # Prevent descent
 
             # --- Directory Filtering ---
@@ -90,6 +106,7 @@ def process_directory_recursive(
                 relative_dir_path = relative_root_path / dir_name
                 relative_dir_path_str = str(relative_dir_path)
                 reason_dir_excluded = ""
+                dir_size_kb = 0.0
 
                 if not follow_symlinks and dir_path_obj.is_symlink():
                     reason_dir_excluded = "Is a symlink (symlink following disabled)"
@@ -98,18 +115,43 @@ def process_directory_recursive(
                 elif matches_patterns(
                     relative_dir_path_str, effective_exclude_patterns
                 ):
-                    reason_dir_excluded = (
-                        "Matches an exclude pattern"  # TODO: Log which pattern
-                    )
+                    reason_dir_excluded = "Matches an exclude pattern"
 
                 if reason_dir_excluded:
-                    logger.info(
-                        f"[log.excluded]Excluded directory[/log.excluded]: "
-                        f"[log.path]{relative_dir_path_str}[/log.path] "
-                        f"([log.reason]{reason_dir_excluded}[/log.reason])"
-                    )
                     stats["excluded_items_count"] += 1
+                    log_events.append({
+                        "path": relative_dir_path_str,
+                        "item_type": "folder",
+                        "status": "excluded",
+                        "size_kb": dir_size_kb, # 0.0 as it's excluded
+                        "reason": reason_dir_excluded,
+                    })
+                    # logger.info removed
                     continue
+
+                # If included, calculate size
+                try:
+                    dir_size_kb = _get_dir_size(dir_path_obj, follow_symlinks)
+                except Exception as e: # Catch potential errors during size calculation
+                    logger.warning(f"Could not calculate size for directory {relative_dir_path_str}: {e}")
+                    # Optionally log this as an error event for the directory
+                    log_events.append({
+                        "path": relative_dir_path_str,
+                        "item_type": "folder",
+                        "status": "error", # Custom status for error during size calculation
+                        "size_kb": 0.0,
+                        "reason": f"Error calculating size: {e}",
+                    })
+                    # Depending on desired behavior, you might want to exclude it or continue
+                    # For now, let's assume we still traverse it if no other exclusion applies.
+
+                log_events.append({
+                    "path": relative_dir_path_str,
+                    "item_type": "folder",
+                    "status": "included",
+                    "size_kb": dir_size_kb,
+                    "reason": None,
+                })
                 dirs_to_traverse_next.append(dir_name)
             dirs_orig[:] = dirs_to_traverse_next
 
@@ -120,6 +162,20 @@ def process_directory_recursive(
                 relative_file_path_str = str(relative_file_path)
                 file_attributes: ProcessedItemPayload = {}
                 reason_file_excluded = ""
+                current_file_size_kb = 0.0 # Initialize file size
+
+                # Attempt to get file size early for logging, even if excluded later
+                try:
+                    # Ensure we don't double-count symlink target size if not following
+                    if not follow_symlinks and file_path_obj.is_symlink():
+                         # For symlinks not being followed, size is typically small (path length)
+                         # Or report as 0, as we are not interested in its target's size.
+                        current_file_size_kb = 0.0
+                    else:
+                        current_file_size_kb = round(file_path_obj.stat().st_size / 1024, 3)
+                except OSError as e:
+                    logger.warning(f"Could not stat file {relative_file_path_str} for size: {e}")
+                    # File might be inaccessible, log event will capture this if excluded
 
                 # Determine exclusion reason
                 if not follow_symlinks and file_path_obj.is_symlink():
@@ -128,127 +184,112 @@ def process_directory_recursive(
                     reason_file_excluded = "Is a hidden file"
                 elif matches_patterns(
                     relative_file_path_str, exclude_patterns
-                ):  # User excludes
-                    reason_file_excluded = "Matches user-specified exclude pattern"  # TODO: specific pattern
+                ):
+                    reason_file_excluded = "Matches user-specified exclude pattern"
                 elif not no_default_ignore and matches_patterns(
                     relative_file_path_str,
-                    DEFAULT_IGNORE_PATTERNS,  # Default excludes
+                    DEFAULT_IGNORE_PATTERNS,
                 ):
-                    reason_file_excluded = (
-                        "Matches default ignore pattern"  # TODO: specific pattern
-                    )
+                    reason_file_excluded = "Matches default ignore pattern"
                 elif include_patterns and not matches_patterns(
                     relative_file_path_str,
-                    include_patterns,  # User includes
+                    include_patterns,
                 ):
                     reason_file_excluded = "Does not match any include pattern"
 
                 if reason_file_excluded:
-                    logger.info(
-                        f"[log.excluded]Excluded file[/log.excluded]: "
-                        f"[log.path]{relative_file_path_str}[/log.path] "
-                        f"([log.reason]{reason_file_excluded}[/log.reason])"
-                    )
                     stats["excluded_items_count"] += 1
+                    log_events.append({
+                        "path": relative_file_path_str,
+                        "item_type": "file",
+                        "status": "excluded",
+                        "size_kb": current_file_size_kb,
+                        "reason": reason_file_excluded,
+                    })
+                    # logger.info removed
                     continue
 
-                # Attempt to process file if not excluded by patterns
+                # Update file_attributes with the size fetched
+                file_attributes["size_kb"] = current_file_size_kb
+
+                # Size check (max_size_kb)
+                if current_file_size_kb * 1024 > max_size_bytes: # Compare with original byte value for precision
+                    reason_max_size = f"Exceeds max size ({current_file_size_kb:.1f}KB > {max_size_kb}KB)"
+                    stats["excluded_items_count"] += 1
+                    log_events.append({
+                        "path": relative_file_path_str,
+                        "item_type": "file",
+                        "status": "excluded",
+                        "size_kb": current_file_size_kb,
+                        "reason": reason_max_size,
+                    })
+                    # logger.info removed
+                    continue
+
+                # Attempt to read content
                 try:
-                    file_stat = file_path_obj.stat()  # Stat once
-                    file_size_bytes = file_stat.st_size
-                    actual_size_kb = round(file_size_bytes / 1024, 3)
-                    file_attributes["size_kb"] = actual_size_kb
-
-                    if file_size_bytes > max_size_bytes:
-                        reason_max_size = f"Exceeds max size ({actual_size_kb:.1f}KB > {max_size_kb}KB)"
-                        logger.info(
-                            f"[log.excluded]Excluded file[/log.excluded]: "
-                            f"[log.path]{relative_file_path_str}[/log.path] "
-                            f"([log.reason]{reason_max_size}[/log.reason])"
-                        )
-                        stats["excluded_items_count"] += 1
-                        continue
-
-                    logger.debug(
-                        f"    Reading content for: [log.path]{relative_file_path_str}[/log.path]"
-                    )
+                    # logger.debug removed
                     with open(
                         file_path_obj, "r", encoding="utf-8", errors="strict"
                     ) as f:
                         file_attributes["content"] = f.read()
                     file_attributes["read_error"] = None
-
                 except OSError as e:
-                    logger.warning(
-                        f"Read error for [log.path]{relative_file_path_str}[/log.path]: {e}"
-                    )
+                    # logger.warning removed
                     if not ignore_read_errors:
-                        reason_os_error = (
-                            f"OS read error (and ignore_errors=False): {e}"
-                        )
-                        logger.info(
-                            f"[log.excluded]Excluded file[/log.excluded]: "
-                            f"[log.path]{relative_file_path_str}[/log.path] "
-                            f"([log.reason]{reason_os_error}[/log.reason])"
-                        )
+                        reason_os_error = f"OS read error: {e}"
                         stats["excluded_items_count"] += 1
+                        log_events.append({
+                            "path": relative_file_path_str,
+                            "item_type": "file",
+                            "status": "excluded",
+                            "size_kb": current_file_size_kb,
+                            "reason": reason_os_error,
+                        })
+                        # logger.info removed
                         continue
                     file_attributes["content"] = None
                     file_attributes["read_error"] = str(e)
-                    if "size_kb" not in file_attributes:  # if stat() also failed
-                        try:
-                            file_attributes["size_kb"] = round(
-                                file_path_obj.stat().st_size / 1024, 3
-                            )
-                        except OSError:
-                            file_attributes["size_kb"] = 0.0
-
+                    # Size already populated or is 0.0 if stat failed initially
                 except UnicodeDecodeError as e:
-                    logger.warning(
-                        f"Unicode decode error for [log.path]{relative_file_path_str}[/log.path]. "
-                        f"File may be binary or use an unexpected encoding."
-                    )
+                    # logger.warning removed
                     if not ignore_read_errors:
-                        reason_unicode_error = (
-                            f"UnicodeDecodeError (and ignore_errors=False): {e}"
-                        )
-                        logger.info(
-                            f"[log.excluded]Excluded file[/log.excluded]: "
-                            f"[log.path]{relative_file_path_str}[/log.path] "
-                            f"([log.reason]{reason_unicode_error}[/log.reason])"
-                        )
+                        reason_unicode_error = f"UnicodeDecodeError: {e}"
                         stats["excluded_items_count"] += 1
+                        log_events.append({
+                            "path": relative_file_path_str,
+                            "item_type": "file",
+                            "status": "excluded",
+                            "size_kb": current_file_size_kb,
+                            "reason": reason_unicode_error,
+                        })
+                        # logger.info removed
                         continue
                     file_attributes["content"] = None
                     file_attributes["read_error"] = f"UnicodeDecodeError: {e}"
-                    if "size_kb" not in file_attributes:  # if stat() failed
-                        try:
-                            file_attributes["size_kb"] = round(
-                                file_path_obj.stat().st_size / 1024, 3
-                            )
-                        except OSError:
-                            file_attributes["size_kb"] = 0.0
+                    # Size already populated
 
-                # If all checks passed and content (or error placeholder) is ready
-                logger.info(
-                    f"[log.included]Included file[/log.included]: "
-                    f"[log.path]{relative_file_path_str}[/log.path] "
-                    f"(Size: {file_attributes.get('size_kb', 0):.1f}KB)"
-                )
+                # If all checks passed
                 stats["included_files_count"] += 1
+                log_events.append({
+                    "path": relative_file_path_str,
+                    "item_type": "file",
+                    "status": "included",
+                    "size_kb": current_file_size_kb,
+                    "reason": None,
+                })
+                # logger.info removed
                 yield (relative_file_path, "file", file_attributes)
+        # logger.debug removed
 
-        logger.debug(
-            f"Core _traverse generator finished. Final stats collected by _traverse: {stats}"
-        )
-
-    return _traverse(), stats
+    return _traverse(), stats, log_events # Modified return value
 
 
 def build_digest_tree(
     base_dir_path: pathlib.Path,
     processed_items_generator: Generator[ProcessedItem, None, None],
     initial_stats: TraversalStats,
+    # log_events: List[LogEvent] # Potentially pass log_events if needed here
 ) -> Tuple[DigestItemNode, Dict[str, Any]]:
     """
     Builds the hierarchical tree structure from the flat list of processed file items

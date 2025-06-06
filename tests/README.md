@@ -93,13 +93,28 @@ Our philosophy is to test thoroughly, from the command-line interface down to th
     *   **Coverage**: `--max-size`, empty files, file read errors (permission, Unicode) with/without `--ignore-errors`, UTF-8 handling.
 
 *   **`tests/test_output_formatting.py`**:
-    *   **Focus**: Validation of Markdown and JSON outputs.
+    *   **Focus**: Validation of Markdown and JSON outputs, and unit tests for log formatting functions.
     *   **Coverage (Markdown)**: Header, directory structure visualization, file content sections, language hints, error representation.
     *   **Coverage (JSON)**: Metadata fields, `root` node structure.
+    *   **Coverage (Log Formatting)**: Unit tests for `format_log_event_for_cli` ensuring correct string output for various log event data.
 
 *   **`tests/test_configuration.py`**:
     *   **Focus**: Loading and merging settings from config files and CLI arguments.
-    *   **Coverage**: Default/custom config files, CLI override precedence, YAML data types, config structures, malformed/missing files.
+    *   **Coverage**: Default/custom config files, CLI override precedence, YAML data types, config structures, malformed/missing files (including `sort_output_log_by` key).
+
+*   **`tests/test_cli_sorting_and_logging.py`**:
+    *   **Focus**: Verification of the detailed console log output, specifically its sorting behavior and formatting.
+    *   **Coverage**: Default log sorting (status then size), various `--sort-output-log-by` scenarios (path-only, status then path, etc.), presence/absence of group headers ("EXCLUDED ITEMS", "INCLUDED ITEMS"), correct formatting of individual log lines (including item sizes and exclusion reasons), YAML configuration for sorting, and CLI override for sorting.
+
+## Interpreting Test Outputs
+
+When running tests, especially with verbose flags (`-v`, `-vv`), `dirdigest` may produce detailed console output. Key characteristics of this output to note:
+
+*   **Verbose Processing Log:** When enabled (typically by tests passing `-v` or `--verbose`), a detailed log of processed files and folders is printed.
+    *   **Format:** Each line includes the item's status (included/excluded), type (file/folder), relative path, reason for exclusion (if any), and its size in kilobytes (e.g., `(Size: 10.52KB)`).
+    *   **Default Sorting:** This log is sorted by default: excluded items appear before included items. Within these groups, folders (by path) precede files (by size descending, then path).
+    *   **Headers:** Group headers like "--- EXCLUDED ITEMS ---" and "--- INCLUDED ITEMS ---" are typically present unless sorting is by path only.
+*   **Final Digest:** Tests may also capture and assert against the final digest output (Markdown or JSON), which is separate from the verbose processing log.
 
 ## Mock Fixtures (`tests/fixtures/test_dirs/`)
 

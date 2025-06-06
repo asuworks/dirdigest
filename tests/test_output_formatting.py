@@ -10,8 +10,81 @@ import pytest
 from click.testing import CliRunner
 
 from dirdigest import cli as dirdigest_cli
+from dirdigest.core import LogEvent # For type hinting
+from dirdigest.formatter import format_log_event_for_cli # Function to test
 from dirdigest.constants import TOOL_VERSION
 
+
+# --- Unit tests for format_log_event_for_cli ---
+
+def test_format_log_event_included_file():
+    log_event: LogEvent = {
+        "path": "src/main.py",
+        "item_type": "file",
+        "status": "included",
+        "size_kb": 2.345,
+        "reason": None,
+    }
+    expected_str = "[log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 2.35KB)"
+    assert format_log_event_for_cli(log_event) == expected_str
+
+def test_format_log_event_excluded_folder_with_reason():
+    log_event: LogEvent = {
+        "path": "node_modules/",
+        "item_type": "folder",
+        "status": "excluded",
+        "size_kb": 10240.0,
+        "reason": "Matches default ignore pattern",
+    }
+    expected_str = "[log.excluded]Excluded folder[/log.excluded]: [log.path]node_modules/[/log.path] ([log.reason]Matches default ignore pattern[/log.reason]) (Size: 10240.00KB)"
+    assert format_log_event_for_cli(log_event) == expected_str
+
+def test_format_log_event_error_status_with_reason():
+    log_event: LogEvent = {
+        "path": "bad_dir/",
+        "item_type": "folder",
+        "status": "error",
+        "size_kb": 0.0,
+        "reason": "Error calculating size: Permission denied",
+    }
+    expected_str = "[log.error]Error folder[/log.error]: [log.path]bad_dir/[/log.path] ([log.reason]Error calculating size: Permission denied[/log.reason]) (Size: 0.00KB)"
+    assert format_log_event_for_cli(log_event) == expected_str
+
+def test_format_log_event_missing_reason_for_excluded():
+    log_event: LogEvent = {
+        "path": "temp.tmp",
+        "item_type": "file",
+        "status": "excluded",
+        "size_kb": 1.0,
+        "reason": None, # Excluded but reason is None
+    }
+    # Reason part should be omitted if reason is None, even if excluded
+    expected_str = "[log.excluded]Excluded file[/log.excluded]: [log.path]temp.tmp[/log.path] (Size: 1.00KB)"
+    assert format_log_event_for_cli(log_event) == expected_str
+
+def test_format_log_event_size_not_numeric():
+    log_event: LogEvent = {
+        "path": "data.bin",
+        "item_type": "file",
+        "status": "included",
+        "size_kb": "very large", # Invalid size type
+        "reason": None,
+    }
+    expected_str = "[log.included]Included file[/log.included]: [log.path]data.bin[/log.path] (Size: N/AKB)"
+    assert format_log_event_for_cli(log_event) == expected_str
+
+def test_format_log_event_minimal_data():
+    log_event: LogEvent = { # type: ignore
+        "path": "minimal.txt",
+        # item_type, status, size_kb, reason are missing
+    }
+    # .get() in formatter should provide defaults
+    # status: "unknown", item_type: "item", size_kb: 0.0
+    expected_str = "[log.unknown]Unknown item[/log.unknown]: [log.path]minimal.txt[/log.path] (Size: 0.00KB)"
+    assert format_log_event_for_cli(log_event) == expected_str
+
+
+# --- Existing tests for JSON/Markdown output format ---
 
 def get_included_files_from_json(json_output_str: str) -> set[str]:
     try:
