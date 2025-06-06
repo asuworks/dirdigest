@@ -187,13 +187,63 @@ def merge_config(
                 current_val, (list, tuple)
             ):  # List from config or tuple from CLI
                 for item in current_val:
-                    if isinstance(item, str):
+                    if isinstance(
+                        item, str
+                    ):  # handles items like "src,tests" within a list
                         normalized_patterns.extend(
                             p.strip() for p in item.split(",") if p.strip()
                         )
                     # else: ignore non-string items in list/tuple
             merged_settings[key] = normalized_patterns
             logger.debug(f"Config: Normalized '{key}' to: {merged_settings[key]}")
+
+    # Validate and normalize 'sort_output_log_by'
+    if "sort_output_log_by" in merged_settings:
+        sort_keys = merged_settings["sort_output_log_by"]
+        valid_sort_keys = ["status", "size", "path"]
+
+        if isinstance(sort_keys, list):
+            # Ensure all items in the list are strings and valid
+            validated_keys = []
+            for item in sort_keys:
+                if isinstance(item, str) and item in valid_sort_keys:
+                    validated_keys.append(item)
+                else:
+                    logger.warning(
+                        f"Config: Invalid sort key '{item}' found in 'sort_output_log_by' in configuration. "
+                        f"Valid keys are {valid_sort_keys}. Ignoring invalid key."
+                    )
+            if not validated_keys:  # If all keys were invalid or list was empty
+                logger.warning(
+                    "Config: 'sort_output_log_by' in configuration contained no valid keys or was empty. "
+                    "It will be ignored."
+                )
+                # Remove it so CLI defaults or explicit CLI args can take over.
+                # If CLI also doesn't provide it, cli.py will set its own default.
+                del merged_settings["sort_output_log_by"]
+            else:
+                merged_settings["sort_output_log_by"] = validated_keys
+                logger.debug(
+                    f"Config: Validated 'sort_output_log_by' from config: {validated_keys}"
+                )
+        elif isinstance(
+            sort_keys, tuple
+        ):  # Likely from CLI if it somehow wasn't handled as list by merge logic
+            # This case should ideally be handled by the main merge loop if CLI provides a tuple
+            # but as a safeguard, ensure it's a list of strings.
+            # CLI values are already validated by click.Choice.
+            merged_settings["sort_output_log_by"] = list(
+                str(k) for k in sort_keys if isinstance(k, str) and k in valid_sort_keys
+            )
+            logger.debug(
+                f"Config: Converted 'sort_output_log_by' tuple to list: {merged_settings['sort_output_log_by']}"
+            )
+        else:
+            logger.warning(
+                f"Config: 'sort_output_log_by' in configuration is not a list (e.g. YAML `sort_output_log_by: [status, size]`). "
+                f"It has type {type(sort_keys).__name__}. Ignoring this configuration."
+            )
+            del merged_settings["sort_output_log_by"]
 
     logger.debug(f"Config: Final merged settings: {merged_settings}")
     return merged_settings

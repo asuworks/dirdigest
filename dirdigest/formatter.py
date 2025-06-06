@@ -5,10 +5,47 @@ from pathlib import Path
 from typing import Any, Dict, List  # Changed from dict, list to Dict, List
 
 from dirdigest.constants import TOOL_VERSION  # Import TOOL_VERSION
-from dirdigest.core import DigestItemNode  # Import the type hint
+from dirdigest.core import DigestItemNode, LogEvent  # Import the type hint & LogEvent
 
 # Define a common structure for metadata earlier if not already defined elsewhere
 Metadata = Dict[str, Any]
+
+
+# New function to format log events for CLI output
+def format_log_event_for_cli(log_event: LogEvent) -> str:
+    """
+    Formats a single log event dictionary into a string for CLI display.
+    """
+    status = log_event.get("status", "unknown")
+    item_type = log_event.get("item_type", "item")
+    path = log_event.get("path", "")
+    size_kb = log_event.get("size_kb", 0.0)
+    reason = log_event.get("reason")
+
+    # Capitalize status for display
+    display_status = status.capitalize()
+
+    # Main message part
+    message = (
+        f"[log.{status}]{display_status} {item_type}[/log.{status}]: "
+        f"[log.path]{path}[/log.path]"
+    )
+
+    # Append reason if excluded and reason is present
+    if status == "excluded" and reason:
+        message += f" ([log.reason]{reason}[/log.reason])"
+    elif status == "error" and reason:  # Also show reason for errors
+        message += f" ([log.reason]{reason}[/log.reason])"
+
+    # Append size, formatted to two decimal places
+    # Ensure size_kb is float for formatting, handle if it's None or non-numeric gracefully
+    try:
+        formatted_size = f"{float(size_kb):.2f}"
+    except (ValueError, TypeError):
+        formatted_size = "N/A"  # Or some other placeholder
+    message += f" (Size: {formatted_size}KB)"
+
+    return message
 
 
 class BaseFormatter:

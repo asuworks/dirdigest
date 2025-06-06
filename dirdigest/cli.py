@@ -1,7 +1,9 @@
+import functools  # Added for cmp_to_key
 import json as json_debugger  # For debug tree printing
 import logging
 import pathlib
 import time
+from typing import List, Tuple  # Added for type hints
 
 import click
 from rich.markup import escape
@@ -9,6 +11,8 @@ from rich.markup import escape
 from dirdigest import core
 from dirdigest import formatter as dirdigest_formatter
 from dirdigest.constants import TOOL_NAME, TOOL_VERSION
+from dirdigest.core import LogEvent  # Added LogEvent for type hinting
+from dirdigest.formatter import format_log_event_for_cli  # Added log event formatter
 from dirdigest.utils import clipboard as dirdigest_clipboard
 from dirdigest.utils import config as dirdigest_config
 from dirdigest.utils import logger as dirdigest_logger
@@ -152,6 +156,13 @@ from dirdigest.utils.tokens import approximate_token_count
         f"./{dirdigest_config.DEFAULT_CONFIG_FILENAME} from the current directory."
     ),
 )
+@click.option(
+    "--sort-output-log-by",
+    multiple=True,
+    type=click.Choice(["status", "size", "path"]),
+    default=None,  # Handled explicitly later if None or empty
+    help="Sort the detailed item-by-item log output. Specify keys in order. 'status': excluded then included. 'size': largest first. 'path': alphabetically. Default: status, size. Allowed multiple times e.g. --sort-output-log-by status --sort-output-log-by size.",
+)
 def main_cli(
     ctx: click.Context,
     directory_arg: pathlib.Path,
@@ -169,6 +180,7 @@ def main_cli(
     quiet: bool,
     log_file: pathlib.Path | None,
     config_path_cli: pathlib.Path | None,
+    sort_output_log_by: Tuple[str, ...],  # Added new sort parameter
 ):
     start_time = time.monotonic()
 
@@ -249,6 +261,15 @@ def main_cli(
     final_follow_symlinks = final_settings.get("follow_symlinks", follow_symlinks)
     final_ignore_errors = final_settings.get("ignore_errors", ignore_errors)
     final_clipboard = final_settings.get("clipboard", clipboard)
+    final_sort_output_log_by = final_settings.get(
+        "sort_output_log_by", sort_output_log_by
+    )
+
+    # Handle default sort keys
+    if not final_sort_output_log_by:  # Empty tuple or None
+        effective_sort_keys = ["status", "size"]
+    else:
+        effective_sort_keys = list(final_sort_output_log_by)
 
     log.debug(f"CLI: Final effective settings after merge: {final_settings}")
     log.info(f"CLI: Processing directory: [log.path]{final_directory}[/log.path]")
@@ -259,7 +280,11 @@ def main_cli(
     else:
         log.info("CLI: Output will be written to stdout")
     log.info(f"CLI: Format: {final_format.upper()}")
-    if final_verbose > 0:
+    log.info(
+        f"CLI: Sorting item log by: {effective_sort_keys}"
+    )  # Log effective sort keys
+
+    if final_verbose > 0:  # Keep existing detailed logging for other params
         log.info(f"CLI: Include patterns: {final_include if final_include else 'N/A'}")
         log.info(f"CLI: Exclude patterns: {final_exclude if final_exclude else 'N/A'}")
         log.info(
@@ -273,20 +298,57 @@ def main_cli(
         )
         log.info(f"CLI: Clipboard: {final_clipboard}")
 
-    processed_items_generator, stats_from_core = core.process_directory_recursive(
-        base_dir_path=final_directory,
-        include_patterns=final_include,
-        exclude_patterns=final_exclude,
-        no_default_ignore=final_no_default_ignore,
-        max_depth=final_max_depth,
-        follow_symlinks=final_follow_symlinks,
-        max_size_kb=final_max_size,
-        ignore_read_errors=final_ignore_errors,
+    processed_items_generator, stats_from_core, log_events_from_core = (
+        core.process_directory_recursive(
+            base_dir_path=final_directory,
+            include_patterns=final_include,
+            exclude_patterns=final_exclude,
+            no_default_ignore=final_no_default_ignore,
+            max_depth=final_max_depth,
+            follow_symlinks=final_follow_symlinks,
+            max_size_kb=final_max_size,
+            ignore_read_errors=final_ignore_errors,
+        )
     )
 
-    log.info("CLI: Building digest tree...")
+    # Consume the generator to a list. This will populate log_events_from_core.
+    processed_items_list = list(processed_items_generator)
+
+    # --- Process and print log events ---
+    if log_events_from_core:
+        log.debug(f"CLI: Received {len(log_events_from_core)} log events from core.")
+        sorted_log_events = _sort_log_events(log_events_from_core, effective_sort_keys)
+        log.debug(f"CLI: Sorted {len(sorted_log_events)} log events.")
+
+        # Print headers and log items
+        # These logs should go through the main logger to respect quiet/verbose and log file settings
+        # format_log_event_for_cli produces Rich-formatted strings, which logger handles.
+        printed_excluded_header = False
+        printed_included_header = False
+        for event in sorted_log_events:
+            formatted_event_str = format_log_event_for_cli(event)
+            if effective_sort_keys != ["path"]:
+                if event.get("status") == "excluded" and not printed_excluded_header:
+                    # Use log.info for these headers so they go to log file and respect verbosity
+                    log.info(
+                        "\n\n[bold red]========================== EXCLUDED ITEMS ==========================[/bold red]\n\n"
+                    )
+                    printed_excluded_header = True
+                elif event.get("status") == "included" and not printed_included_header:
+                    log.info(
+                        "\n\n[bold green]========================== INCLUDED ITEMS ==========================[/bold green]\n\n"
+                    )
+                    printed_included_header = True
+            log.info(formatted_event_str)  # Each event is logged as INFO
+    else:
+        log.debug("CLI: No log events received from core.")
+    # --- End Process and print log events ---
+
+    log.info(
+        "\n\nCLI: Building digest tree..."
+    )  # This message now appears after individual logs
     root_node, metadata_for_output = core.build_digest_tree(
-        final_directory, processed_items_generator, stats_from_core
+        final_directory, iter(processed_items_list), stats_from_core
     )
     log.debug(
         f"CLI: Digest tree built. Root node children: {len(root_node.get('children', []))}"
@@ -445,7 +507,7 @@ def main_cli(
     inc_count = metadata_for_output.get("included_files_count", 0)
     exc_count = metadata_for_output.get(
         "excluded_items_count", 0
-    )  # Corrected key from stats_from_core
+    )  # This key is now consistent from core.py
     total_size = metadata_for_output.get("total_content_size_kb", 0.0)
 
     approx_tokens = 0
@@ -454,7 +516,9 @@ def main_cli(
     ):  # Use original content for tokens
         approx_tokens = approximate_token_count(generated_digest_content)
 
-    log.info("-" * 30 + " SUMMARY " + "-" * 30)
+    log.info(
+        "\n\n[bold blue]============================== SUMMARY ============================== [/bold blue]\n\n"
+    )
     log.info(
         f"[log.summary_key]Total files included:[/log.summary_key] [log.summary_value_inc]{inc_count}[/log.summary_value_inc]"
     )
@@ -470,7 +534,7 @@ def main_cli(
     log.info(
         f"[log.summary_key]Execution time:[/log.summary_key] [log.summary_value_neutral]{execution_time:.2f} seconds[/log.summary_value_neutral]"
     )
-    log.info("-" * (60 + len(" SUMMARY ")))
+    log.info("\n" + "=" * (60 + len(" SUMMARY ")))
 
     will_log_debug_tree = False
     if log.isEnabledFor(logging.DEBUG):
@@ -502,3 +566,92 @@ def main_cli(
 
 if __name__ == "__main__":
     main_cli()
+
+
+# Helper function for sorting log events (to be defined or placed appropriately)
+def _sort_log_events(
+    log_events: List[LogEvent], sort_keys: List[str]
+) -> List[LogEvent]:
+    """Sorts log events based on a list of sort keys."""
+
+    if not log_events:
+        return []
+
+    # Default sort: status (excluded then included), then folders by path, then files by size (desc) then path
+    if sort_keys == ["status", "size"]:  # This is our special default case
+
+        def compare_default(item1: LogEvent, item2: LogEvent) -> int:
+            # 1. Status: 'excluded' < 'included' < 'error' (errors might appear last or first based on preference)
+            # Let's make 'excluded' first, then 'included', then 'error'
+            status_order = {
+                "excluded": 0,
+                "included": 1,
+                "error": 2,
+                "unknown": 3,
+            }  # unknown just in case
+            s1 = status_order.get(item1.get("status", "unknown"), 3)
+            s2 = status_order.get(item2.get("status", "unknown"), 3)
+            if s1 != s2:
+                return s1 - s2
+
+            # 2. Item Type (within same status): 'folder' < 'file'
+            type_order = {"folder": 0, "file": 1}
+            t1 = type_order.get(item1.get("item_type", "file"), 1)
+            t2 = type_order.get(item2.get("item_type", "file"), 1)
+            if t1 != t2:
+                return t1 - t2
+
+            # 3. Sorting based on item type
+            path1 = item1.get("path", "")
+            path2 = item2.get("path", "")
+
+            if item1.get("item_type") == "folder":  # Both are folders
+                return (path1 > path2) - (path1 < path2)  # Alphabetical A-Z
+            else:  # Both are files
+                size1 = item1.get("size_kb", 0.0)
+                size2 = item2.get("size_kb", 0.0)
+                if size1 != size2:
+                    return (size2 > size1) - (size2 < size1)  # Descending size
+                return (path1 > path2) - (path1 < path2)  # Alphabetical A-Z for ties
+
+        return sorted(log_events, key=functools.cmp_to_key(compare_default))
+
+    # General case: apply sort keys in order
+    # Create a list of tuples for sorting, where each tuple element corresponds to a sort key
+    # Python's list.sort or sorted() is stable, so we can sort multiple times
+    # For simplicity with mixed ascending/descending, we'll build a comparison key list
+
+    # Need to reverse the sort_keys list to apply them in order using multiple stable sorts
+    # from last key to first key.
+
+    # Example: sort_keys = ['status', 'size']
+    # 1. Sort by size (secondary key)
+    # 2. Sort by status (primary key)
+
+    # Let's re-implement general sorting more directly for clarity
+    # We will sort from the last key to the first key (stable sort property)
+
+    # Make a mutable copy to sort in place
+    mutable_log_events = list(log_events)
+
+    for key_idx in range(len(sort_keys) - 1, -1, -1):
+        sort_key = sort_keys[key_idx]
+
+        if sort_key == "status":
+            # Excluded < Included < Error (alphabetical also works if "error" is used)
+            # Python's sort is stable.
+            mutable_log_events.sort(
+                key=lambda x: (
+                    {"excluded": 0, "included": 1, "error": 2}.get(
+                        x.get("status", "unknown"), 3
+                    )
+                )
+            )
+        elif sort_key == "size":
+            # Descending size
+            mutable_log_events.sort(key=lambda x: x.get("size_kb", 0.0), reverse=True)
+        elif sort_key == "path":
+            # Ascending path
+            mutable_log_events.sort(key=lambda x: x.get("path", ""))
+
+    return mutable_log_events
