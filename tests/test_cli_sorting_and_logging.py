@@ -304,10 +304,24 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
     markdown_output = ""
     file_to_make_unreadable = Path("permission_denied_file.txt")
     original_permissions = None
+    permission_change_successful = False
+
     try:
         if file_to_make_unreadable.exists():
             original_permissions = file_to_make_unreadable.stat().st_mode
             os.chmod(file_to_make_unreadable, 0o000)
+
+            # Verify the permission change worked
+            try:
+                file_to_make_unreadable.read_text()
+                permission_change_successful = False
+            except PermissionError:
+                permission_change_successful = True
+
+        # Skip if we couldn't make the file unreadable
+        if not permission_change_successful:
+            pytest.skip(f"Could not make {file_to_make_unreadable} unreadable on this platform")
+
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,

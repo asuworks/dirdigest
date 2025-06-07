@@ -124,13 +124,31 @@ class TestErrorHandling:
         file_in_temp_dir = Path(file_to_check)
 
         original_permissions = None
+        permission_change_successful = False
+
         if make_unreadable and file_in_temp_dir.exists():
             try:
                 original_permissions = file_in_temp_dir.stat().st_mode
                 # Remove all permissions: 000
                 os.chmod(file_in_temp_dir, 0o000)
+
+                # Verify the permission change worked by trying to read the file
+                try:
+                    file_in_temp_dir.read_text()
+                    # If we can still read it, the permission change didn't work
+                    permission_change_successful = False
+                except PermissionError:
+                    # Good, the permission change worked
+                    permission_change_successful = True
+
             except OSError as e:
                 pytest.skip(f"Could not set permissions for {file_in_temp_dir} to test permission denial. Error: {e}")
+
+        # Skip the test if we couldn't actually make the file unreadable
+        if make_unreadable and not permission_change_successful:
+            pytest.skip(
+                f"Could not make {file_in_temp_dir} unreadable on this platform - permission changes ineffective"
+            )
 
         try:
             with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
