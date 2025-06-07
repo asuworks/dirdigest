@@ -71,6 +71,8 @@ RUN apt-get update && \
     ca-certificates \
     fish \
     git \
+    curl \
+    wget \
     # Runtime libs for python etc.
     libssl-dev \
     libffi-dev \
