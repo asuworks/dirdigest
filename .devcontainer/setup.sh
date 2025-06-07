@@ -7,12 +7,16 @@ echo "Setting up the development environment..."
 echo "Removing old virtual environment if it exists..."
 rm -rf .venv
 
-# Source ASDF to make its shims available to this script
-# . "$HOME/.asdf/asdf.sh"
+# Source ASDF to make its shims available to this script.
+# This ensures uv finds the correct python interpreter.
+. "$HOME/.asdf/asdf.sh"
 
-echo "Installing/updating dependencies with 'uv'..."
+echo "Creating the virtual environment with 'uv'..."
+# uv will automatically find and use the python from asdf
 uv venv
-source .venv/bin/activate.fish
-uv pip install --editable .
+
+echo "Installing dependencies into the virtual environment..."
+# uv will automatically find and install into ./.venv
+uv pip install -e .[dev]
 
 echo "✅ Setup complete!"
