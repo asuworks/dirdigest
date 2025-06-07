@@ -3,23 +3,33 @@
     "build": {
         "dockerfile": "Dockerfile"
     },
-    "postCreateCommand": "chmod +x .devcontainer/setup.sh && .devcontainer/setup.sh",
+    // Add this line to set the default directory
+    "workspaceFolder": "/workspaces/dirdigest",
+    // Runs once when the container is created to install dependencies.
+    // Ensure this script is executable in git: `git update-index --chmod=+x .devcontainer/setup.sh`
+    "postCreateCommand": ".devcontainer/setup.sh",
     "customizations": {
         "vscode": {
             "settings": {
-                "terminal.integrated.defaultProfile.linux": "bash",
-                "python.defaultInterpreterPath": "./.venv/bin/python",
+                "terminal.integrated.profiles.linux": {
+                    "fish_with_test": {
+                        "path": "/usr/bin/fish",
+                        "args": [
+                            "-l",
+                            "-c",
+                            "cd ${containerWorkspaceFolder} && fish"
+                        ]
+                    }
+                },
+                "terminal.integrated.defaultProfile.linux": "fish_with_test",
+                "python.defaultInterpreterPath": ".venv/bin/python",
                 "python.terminal.activateEnvironment": true
             },
             "extensions": [
                 "ms-python.python",
                 "ms-python.vscode-pylance",
-                "ms-python.flake8",
                 "charliermarsh.ruff"
             ]
         }
-    },
-    "remoteEnv": {
-        "PATH": "${containerWorkspaceFolder}/.venv/bin:${containerEnv:PATH}"
     }
 }

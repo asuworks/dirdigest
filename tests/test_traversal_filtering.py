@@ -110,9 +110,9 @@ def test_default_ignores_complex_project(runner: CliRunner, temp_test_dir: Path)
         "docs/api.md",
         "data/small_data.csv",
     }
-    assert included_files == expected_to_be_included, (
-        f"Mismatch in included files. Got: {included_files}, Expected: {expected_to_be_included}"
-    )
+    assert (
+        included_files == expected_to_be_included
+    ), f"Mismatch in included files. Got: {included_files}, Expected: {expected_to_be_included}"
 
     excluded_patterns_to_check_are_absent = [
         ".env",
@@ -126,9 +126,9 @@ def test_default_ignores_complex_project(runner: CliRunner, temp_test_dir: Path)
         if pattern_str.endswith("/"):
             for_test_pattern = pattern_str.rstrip("/")
             found_in_excluded_dir = [f for f in included_files if f.startswith(for_test_pattern + "/")]
-            assert not found_in_excluded_dir, (
-                f"Files from default-ignored dir '{pattern_str}' found: {found_in_excluded_dir}"
-            )
+            assert (
+                not found_in_excluded_dir
+            ), f"Files from default-ignored dir '{pattern_str}' found: {found_in_excluded_dir}"
         else:
             assert pattern_str not in included_files, f"Default-ignored file '{pattern_str}' was included."
 
@@ -615,12 +615,12 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
                 for child_node in current_node["children"]:
                     queue_nodes.append(child_node)
 
-        assert processed_broken_link_node is not None, (
-            "broken_link node not found in JSON output with --follow-symlinks --ignore-errors"
-        )
+        assert (
+            processed_broken_link_node is not None
+        ), "broken_link node not found in JSON output with --follow-symlinks --ignore-errors"
         assert "read_error" in processed_broken_link_node, "broken_link node should have a 'read_error' attribute"
-        assert processed_broken_link_node.get("content") is None, (
-            "broken_link node should have no content due to read_error"
-        )
+        assert (
+            processed_broken_link_node.get("content") is None
+        ), "broken_link node should have no content due to read_error"
     finally:
         os.chdir(original_cwd)

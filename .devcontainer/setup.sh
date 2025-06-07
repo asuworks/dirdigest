@@ -1,27 +1,13 @@
-#!/usr/bin/env bash
-set -e
+#!/usr/bin/fish
 
-echo "Setting up dirdigest development environment..."
+echo "Installing dependencies with 'uv sync'..."
+# This will also create the .venv if it doesn't exist.
+uv sync --all-extras
 
-# Create virtual environment with uv
-if [ ! -d ".venv" ]; then
-    echo "Creating virtual environment..."
-    uv venv .venv
-else
-    echo "Virtual environment already exists."
-fi
+echo "Activating the virtual environment..."
+source .venv/bin/activate.fish
 
-# Activate the virtual environment
-echo "Activating virtual environment..."
-source .venv/bin/activate
+echo "Activating pre-commit hooks..."
+pre-commit install --install-hooks
 
-# Install dependencies using uv pip
-echo "Installing dirdigest in editable mode with dev dependencies..."
-uv pip install -e .[dev]
-
-# Verify installation
-echo "Verifying installation..."
-dirdigest --version
-
-echo "✅ Virtual environment created and dirdigest installed in editable mode."
-echo "🎉 Setup complete! You can now run 'make test' to run the test suite."
+echo "✅ Setup complete!"

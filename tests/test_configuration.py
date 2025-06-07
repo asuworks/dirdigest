@@ -288,15 +288,15 @@ class TestConfigLoadingAndMerging:
             mock_process_dir.assert_called_once()
             kwargs_core = mock_process_dir.call_args.kwargs
 
-            assert kwargs_core["no_default_ignore"] is True, (
-                f"Expected no_default_ignore to be True, got {kwargs_core['no_default_ignore']}"
-            )
-            assert kwargs_core["follow_symlinks"] is True, (
-                f"Expected follow_symlinks to be True, got {kwargs_core['follow_symlinks']}"
-            )
-            assert kwargs_core["ignore_read_errors"] is True, (
-                f"Expected ignore_read_errors to be True, got {kwargs_core['ignore_read_errors']}"
-            )
+            assert (
+                kwargs_core["no_default_ignore"] is True
+            ), f"Expected no_default_ignore to be True, got {kwargs_core['no_default_ignore']}"
+            assert (
+                kwargs_core["follow_symlinks"] is True
+            ), f"Expected follow_symlinks to be True, got {kwargs_core['follow_symlinks']}"
+            assert (
+                kwargs_core["ignore_read_errors"] is True
+            ), f"Expected ignore_read_errors to be True, got {kwargs_core['ignore_read_errors']}"
 
             # Check if clipboard.copy_to_clipboard was called (or not called)
             # Based on config `clipboard: false`
