@@ -1,23 +1,35 @@
-// For format details, see https://aka.ms/devcontainer.json. For config options, see the
-// README at: https://github.com/devcontainers/templates/tree/main/src/python
 {
     "name": "dirdigest-dev",
-    // Or use a Dockerfile or Docker Compose file. More info: https://containers.dev/guide/dockerfile
-    "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
-    // Use 'postCreateCommand' to run commands after the container is created.
-    "postCreateCommand": "./.devcontainer/setup.sh",
-
-    // Configure tool-specific properties.
+    "build": {
+        "dockerfile": "Dockerfile"
+    },
+    // Add this line to set the default directory
+    "workspaceFolder": "/workspaces/dirdigest",
+    // Runs once when the container is created to install dependencies.
+    // Ensure this script is executable in git: `git update-index --chmod=+x .devcontainer/setup.sh`
+    "postCreateCommand": ".devcontainer/setup.sh",
     "customizations": {
         "vscode": {
-            "extensions": ["ms-python.python", "editorconfig.editorconfig"],
             "settings": {
-                "python.testing.pytestArgs": ["tests"],
-                "python.testing.unittestEnabled": false,
-                "python.testing.pytestEnabled": true,
-                "python.defaultInterpreterPath": "/workspaces/dirdigest/.venv/bin/python",
-                "python.testing.pytestPath": "/workspaces/dirdigest/.venv/bin/pytest"
-            }
+                "terminal.integrated.profiles.linux": {
+                    "fish_with_test": {
+                        "path": "/usr/bin/fish",
+                        "args": [
+                            "-l",
+                            "-c",
+                            "cd ${containerWorkspaceFolder} && fish"
+                        ]
+                    }
+                },
+                "terminal.integrated.defaultProfile.linux": "fish_with_test",
+                "python.defaultInterpreterPath": ".venv/bin/python",
+                "python.terminal.activateEnvironment": true
+            },
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "charliermarsh.ruff"
+            ]
         }
     }
 }
