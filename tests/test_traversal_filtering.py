@@ -661,7 +661,7 @@ def test_include_file_in_excluded_dir(run_process_directory_direct):
 
     assert_log_event_exists(log_events, {
         "path": "data/important.txt", "item_type": "file", "status": "included",
-        "reason": "Matches more specific include pattern" # Updated prefix
+        "reason": "Include pattern 'data/important.txt' (score 28) is more specific than exclude pattern 'data/' (score 15)"
     })
     assert_log_event_exists(log_events, {
         "path": "data/other.txt", "item_type": "file", "status": "excluded",
@@ -677,7 +677,7 @@ def test_include_file_in_excluded_dir(run_process_directory_direct):
     # However, due to include pattern "data/important.txt", traversal is allowed.
     assert_log_event_exists(log_events, {
         "path": "data", "item_type": "folder", "status": "included",
-        "reason": "Traversal allowed: item matches user exclude ('data/'), but an include pattern targets a descendant."
+        "reason": "Traversal allowed: directory 'data' matches user exclude ('data/'), but an include pattern targets a descendant."
     })
 
 
@@ -695,7 +695,7 @@ def test_include_specific_file_overrides_broad_exclude(run_process_directory_dir
 
     assert_log_event_exists(log_events, {
         "path": "debug.log", "item_type": "file", "status": "included",
-        "reason": "Matches more specific include pattern" # Updated prefix
+        "reason": "Include pattern 'debug.log' (score 9) is more specific than exclude pattern '*.log' (score 0)"
     })
     assert_log_event_exists(log_events, {
         "path": "app.log", "item_type": "file", "status": "excluded",
@@ -726,7 +726,7 @@ def test_include_subdir_in_excluded_parent_dir(run_process_directory_direct):
     # Log for config/priority/db.conf
     assert_log_event_exists(log_events, {
         "path": "config/priority/db.conf", "item_type": "file", "status": "included",
-        "reason": "Matches more specific include pattern" # Updated prefix
+        "reason": "Include pattern 'config/priority/' (score 36) is more specific than exclude pattern 'config/' (score 17)"
     })
     # Log for config/main.conf
     assert_log_event_exists(log_events, {
@@ -742,7 +742,7 @@ def test_include_subdir_in_excluded_parent_dir(run_process_directory_direct):
     # Traversal is allowed.
     assert_log_event_exists(log_events, {
         "path": "config/priority", "item_type": "folder", "status": "included",
-        "reason": "Matches more specific include pattern (traversal allowed)" # Updated prefix, assuming file "config/priority/" is checked against exclude "config/"
+        "reason": "Include pattern 'config/priority/' (score 36) is more specific than exclude pattern 'config/' (score 17)"
     })
     # Directory 'config/other':
     # `matches_user_include_dir` for `config/other/` with `include_patterns=['config/priority/']` is FALSE.
@@ -762,7 +762,7 @@ def test_include_subdir_in_excluded_parent_dir(run_process_directory_direct):
     # The log for 'config' itself should reflect its own direct match.
     assert_log_event_exists(log_events, {
         "path": "config", "item_type": "folder", "status": "included",
-        "reason": "Traversal allowed: item matches user exclude ('config/'), but an include pattern targets a descendant."
+        "reason": "Traversal allowed: directory 'config' matches user exclude ('config/'), but an include pattern targets a descendant."
     })
 
 
@@ -861,7 +861,7 @@ def test_explicit_exclude_over_implied_exclude(run_process_directory_direct):
     # This is higher precedence than "Does not match any include pattern".
     assert_log_event_exists(log_events, {
         "path": "temp.log", "item_type": "file", "status": "excluded",
-        "reason": "Matches user-specified exclude pattern"
+        "reason": "Matches user-specified exclude pattern" # Corrected: was "Include pattern"
     })
 
 
@@ -1096,3 +1096,34 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
         # For simplicity, we'll rely on tmp_path to clean the directory.
 
         os.chdir(original_cwd)
+
+
+# --- Tests for Error Conditions ---
+
+def test_error_identical_include_exclude_pattern(run_process_directory_direct):
+    """
+    Tests that a ValueError is raised if the same pattern is specified in both
+    include and exclude rules for a path that matches it.
+    """
+    files = {"file.txt": "content"}
+    with pytest.raises(
+        ValueError,
+        match="Pattern 'file.txt' is specified in both include and exclude rules for path 'file.txt'."
+    ):
+        run_process_directory_direct(
+            files,
+            include_patterns=["file.txt"],
+            exclude_patterns=["file.txt"]
+        )
+
+    # Test with a directory pattern
+    files_dir = {"data/file.txt": "content"}
+    with pytest.raises(
+        ValueError,
+        match="Pattern 'data/' is specified in both include and exclude rules for directory 'data'."
+    ):
+        run_process_directory_direct(
+            files_dir,
+            include_patterns=["data/"],
+            exclude_patterns=["data/"]
+        )
