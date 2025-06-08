@@ -77,88 +77,119 @@ def process_directory_recursive(
                 relative_file_path = relative_root_path / file_name
                 relative_file_path_str = str(relative_file_path)
                 file_attributes: ProcessedItemPayload = {}
-                reason_file_excluded = ""
                 current_file_size_kb = 0.0
+                is_included = False  # Default to excluded
+                reason = ""
 
                 try:
-                    if not follow_symlinks and file_path_obj.is_symlink():
+                    # Symlink size is 0 if not followed, otherwise actual size
+                    if file_path_obj.is_symlink() and not follow_symlinks:
                         current_file_size_kb = 0.0
                     else:
+                        # For actual files or followed symlinks, get their size
                         current_file_size_kb = round(file_path_obj.stat().st_size / 1024, 3)
                 except OSError as e:
                     logger.warning(f"Could not stat file {relative_file_path_str} for size: {e}")
+                    # If stat fails, treat as 0 size for now, exclusion reason will be set later if applicable
+                    current_file_size_kb = 0.0
 
-                if not follow_symlinks and file_path_obj.is_symlink():
-                    reason_file_excluded = "Is a symlink (symlink following disabled)"
-                elif is_path_hidden(relative_file_path) and not no_default_ignore:
-                    reason_file_excluded = "Is a hidden file"
-                elif matches_patterns(relative_file_path_str, exclude_patterns):
-                    reason_file_excluded = "Matches user-specified exclude pattern"
-                elif not no_default_ignore and matches_patterns(relative_file_path_str, DEFAULT_IGNORE_PATTERNS):
-                    reason_file_excluded = "Matches default ignore pattern"
-                elif include_patterns and not matches_patterns(relative_file_path_str, include_patterns):
-                    reason_file_excluded = "Does not match any include pattern"
 
-                if reason_file_excluded:
-                    stats["excluded_items_count"] += 1
-                    log_events.append(
-                        {
-                            "path": relative_file_path_str,
-                            "item_type": "file",
-                            "status": "excluded",
-                            "size_kb": current_file_size_kb,
-                            "reason": reason_file_excluded,
-                        }
-                    )
-                    continue
+                # 1. Calculate all matching conditions first
+                matches_user_include_original = matches_patterns(relative_file_path_str, include_patterns)
+                matches_user_include = matches_user_include_original
+                if not matches_user_include and include_patterns:
+                    for p in include_patterns:
+                        if p.endswith('/') and relative_file_path_str.startswith(p):
+                            matches_user_include = True
+                            break
 
-                file_attributes["size_kb"] = current_file_size_kb
-                if current_file_size_kb * 1024 > max_size_bytes:
-                    reason_max_size = f"Exceeds max size ({current_file_size_kb:.1f}KB > {max_size_kb}KB)"
-                    stats["excluded_items_count"] += 1
-                    log_events.append(
-                        {
-                            "path": relative_file_path_str,
-                            "item_type": "file",
-                            "status": "excluded",
-                            "size_kb": current_file_size_kb,
-                            "reason": reason_max_size,
-                        }
-                    )
-                    continue
-
-                try:
-                    with open(file_path_obj, "r", encoding="utf-8", errors="strict") as f:
-                        file_attributes["content"] = f.read()
-                    file_attributes["read_error"] = None
-                except (OSError, UnicodeDecodeError) as e:
-                    error_reason = f"{type(e).__name__}: {e}"
-                    if not ignore_read_errors:
-                        stats["excluded_items_count"] += 1
-                        log_events.append(
-                            {
-                                "path": relative_file_path_str,
-                                "item_type": "file",
-                                "status": "excluded",
-                                "size_kb": current_file_size_kb,
-                                "reason": error_reason,
-                            }
-                        )
-                        continue
-                    file_attributes["content"] = None
-                    file_attributes["read_error"] = error_reason
-
-                stats["included_files_count"] += 1
-                log_events.append(
-                    {
-                        "path": relative_file_path_str,
-                        "item_type": "file",
-                        "status": "included",
-                        "size_kb": current_file_size_kb,
-                        "reason": None,
-                    }
+                matches_user_exclude = matches_patterns(relative_file_path_str, exclude_patterns)
+                is_symlink_and_not_followed = not follow_symlinks and file_path_obj.is_symlink()
+                is_hidden_and_not_default_ignored = is_path_hidden(relative_file_path) and not no_default_ignore
+                matches_default_exclude = not no_default_ignore and matches_patterns(
+                    relative_file_path_str, DEFAULT_IGNORE_PATTERNS
                 )
-                yield (relative_file_path, "file", file_attributes)
+
+                is_hidden_and_not_default_ignored = is_path_hidden(relative_file_path) and not no_default_ignore
+                matches_default_exclude = not no_default_ignore and matches_patterns(
+                    relative_file_path_str, DEFAULT_IGNORE_PATTERNS
+                )
+
+                # 2. Apply new precedence rules
+                if matches_user_include:
+                    is_included = True
+                    reason = "Matches user-specified include pattern"
+                elif is_symlink_and_not_followed:
+                    is_included = False
+                    reason = "Is a symlink (symlink following disabled)"
+                elif matches_user_exclude:
+                    is_included = False
+                    reason = "Matches user-specified exclude pattern"
+                elif is_hidden_and_not_default_ignored:
+                    is_included = False
+                    reason = "Is a hidden file"
+                elif matches_default_exclude:
+                    is_included = False
+                    reason = "Matches default ignore pattern"
+                elif include_patterns: # User provided include patterns, but this file didn't match any
+                    is_included = False
+                    reason = "Does not match any include pattern"
+                else: # Default include (no include patterns provided, and not excluded by other rules)
+                    is_included = True
+                    # No specific reason needed for default inclusion unless overridden by include_patterns
+                    reason = "Default inclusion" if not include_patterns else None
+
+
+                # 3. Handle outcome (size checks, read errors, and logging)
+                if is_included:
+                    file_attributes["size_kb"] = current_file_size_kb
+                    if current_file_size_kb * 1024 > max_size_bytes:
+                        is_included = False
+                        reason = f"Exceeds max size ({current_file_size_kb:.1f}KB > {max_size_kb}KB)"
+                    else:
+                        try:
+                            # For symlinks, if follow_symlinks is true, file_path_obj.open() will open the target.
+                            # If follow_symlinks is false, symlinks are already excluded by is_symlink_and_not_followed.
+                            with file_path_obj.open("r", encoding="utf-8", errors="strict") as f:
+                                file_attributes["content"] = f.read()
+                            file_attributes["read_error"] = None
+                            # reason remains as why it was included (e.g. "Matches user-specified include pattern")
+                        except (OSError, UnicodeDecodeError) as e:
+                            error_reason_str = f"{type(e).__name__}: {e}"
+                            if not ignore_read_errors:
+                                is_included = False
+                                reason = error_reason_str
+                            else:
+                                # Included, but with read error noted
+                                file_attributes["content"] = None
+                                file_attributes["read_error"] = error_reason_str
+                                # reason might still be "Matches user-specified include pattern", which is fine.
+
+                if is_included:
+                    stats["included_files_count"] += 1
+                    log_events.append(
+                        {
+                            "path": relative_file_path_str,
+                            "item_type": "file",
+                            "status": "included",
+                            "size_kb": current_file_size_kb,
+                            # Reason here should reflect why it was included, or None if default
+                            "reason": reason if reason != "Default inclusion" else None,
+                        }
+                    )
+                    yield (relative_file_path, "file", file_attributes)
+                else:
+                    stats["excluded_items_count"] += 1
+                    log_events.append(
+                        {
+                            "path": relative_file_path_str,
+                            "item_type": "file",
+                            "status": "excluded",
+                            "size_kb": current_file_size_kb,
+                            "reason": reason,
+                        }
+                    )
+                    # The 'continue' is implicit as we won't yield if not included
 
             # --- Now, filter directories for traversal control ---
             dirs_to_remove = []
@@ -166,40 +197,113 @@ def process_directory_recursive(
                 dir_path_obj = current_root_path / dir_name
                 relative_dir_path = relative_root_path / dir_name
                 relative_dir_path_str = str(relative_dir_path)
-                reason_dir_excluded = ""
-                dir_size_kb = _get_dir_size(dir_path_obj, follow_symlinks)
+                dir_size_kb = _get_dir_size(dir_path_obj, follow_symlinks) # Calculate size regardless
+                is_included_for_traversal = False  # Default to not traverse
+                reason_dir_activity = "" # Can be reason for inclusion or exclusion
 
-                if max_depth is not None and current_depth >= max_depth:
-                    reason_dir_excluded = "Exceeds max depth"
-                elif not follow_symlinks and dir_path_obj.is_symlink():
-                    reason_dir_excluded = "Is a symlink (symlink following disabled)"
-                elif is_path_hidden(relative_dir_path) and not no_default_ignore:
-                    reason_dir_excluded = "Is a hidden directory"
-                elif matches_patterns(relative_dir_path_str, effective_exclude_patterns):
-                    reason_dir_excluded = "Matches an exclude pattern"
+                # 1. Calculate all matching conditions
+                # Note: For directories, include_patterns matching means "allow traversal further, and also explicitly include this dir if it were a file"
+                # Exclude patterns for dirs mean "do not traverse and explicitly exclude".
+                matches_user_include_dir = matches_patterns(relative_dir_path_str, include_patterns)
+                matches_user_exclude_dir_raw = matches_patterns(relative_dir_path_str, exclude_patterns) # Using specific user excludes
+                exceeds_max_depth = max_depth is not None and current_depth >= max_depth
+                is_symlink_dir_and_not_followed = not follow_symlinks and dir_path_obj.is_symlink()
+                is_hidden_dir_and_not_default_ignored = is_path_hidden(relative_dir_path) and not no_default_ignore
+                matches_default_exclude_dir = not no_default_ignore and matches_patterns(
+                    relative_dir_path_str, DEFAULT_IGNORE_PATTERNS
+                )
 
-                if reason_dir_excluded:
+                # 2. Apply new precedence rules for directory traversal
+                if matches_user_include_dir:
+                    is_included_for_traversal = True
+                    reason_dir_activity = "Matches user-specified include pattern (traversal allowed)"
+                elif exceeds_max_depth:
+                    # is_included_for_traversal remains False
+                    reason_dir_activity = "Exceeds max depth"
+                elif is_symlink_dir_and_not_followed:
+                    # is_included_for_traversal remains False
+                    reason_dir_activity = "Is a symlink (symlink following disabled)"
+                elif matches_user_exclude_dir_raw:
+                    # If the directory itself matches a user exclude, check if any user include pattern
+                    # targets a descendant. If so, we must traverse this directory.
+                    should_traverse_for_descendant_include = False
+                    if include_patterns: # Only relevant if there are include patterns
+                        # Convert relative_dir_path to Path object for easier comparison
+                        current_dir_path_obj_for_check = pathlib.Path(relative_dir_path_str)
+                        for inc_pattern_str in include_patterns:
+                            # Check if inc_pattern_str is a descendant of relative_dir_path_str
+                            # A simple way: check if inc_pattern_str starts with relative_dir_path_str + "/"
+                            # Or if inc_pattern_str is a direct file/subdir in relative_dir_path_str
+                            # pathlib.Path(inc_pattern_str).parent can be tricky if inc_pattern_str is like "file.txt" (parent is '.')
+                            # A robust check: is current_dir_path_obj_for_check an ancestor of pathlib.Path(inc_pattern_str)?
+                            inc_path_obj = pathlib.Path(inc_pattern_str)
+                            if current_dir_path_obj_for_check in inc_path_obj.parents:
+                                should_traverse_for_descendant_include = True
+                                break
+                            # Also handle if include pattern is for the dir itself, e.g. "config/" and current dir is "config"
+                            # This case should already be handled by `matches_user_include_dir` taking precedence.
+                            # This check is specifically for *descendants*.
+
+                    if should_traverse_for_descendant_include:
+                        is_included_for_traversal = True # Override exclusion to find included descendant
+                        # Reason indicates it's traversed to find specific includes, but otherwise excluded.
+                        # Files/subdirs within will then be re-evaluated.
+                        # The directory itself won't be "included" in the output digest unless it also matches an include pattern.
+                        reason_dir_activity = (
+                            f"Traversal allowed to find descendants matching include patterns, "
+                            f"though directory itself matches exclude pattern: {relative_dir_path_str}"
+                        )
+                    else:
+                        # is_included_for_traversal remains False
+                        reason_dir_activity = "Matches user-specified exclude pattern"
+                elif is_hidden_dir_and_not_default_ignored:
+                    # is_included_for_traversal remains False
+                    reason_dir_activity = "Is a hidden directory"
+                elif matches_default_exclude_dir:
+                    # is_included_for_traversal remains False
+                    reason_dir_activity = "Matches default ignore pattern"
+                elif include_patterns:  # Check for "implied exclude" for directories
+                    has_glob_include = any("*" in p or "?" in p or "[" in p for p in include_patterns)
+                    # The 'matches_user_include_dir' check is implicitly part of the 'if/elif' chain already.
+                    # If matches_user_include_dir was true, we wouldn't be in this elif branch.
+                    if not has_glob_include:
+                        # is_included_for_traversal remains False by default if not previously set true
+                        reason_dir_activity = "Does not match any include pattern (directory)"
+                    else:
+                        # If there's a glob include, we don't prune here by "Does not match..."
+                        # It might still be False if not set by a preceding rule.
+                        # If no other rule has set is_included_for_traversal to True or False with a reason,
+                        # and we have glob includes, we default to traversing.
+                        if not reason_dir_activity and not is_included_for_traversal: # only if no decision made yet
+                           is_included_for_traversal = True
+                           reason_dir_activity = "Traversal allowed due to active glob include patterns"
+                        # If is_included_for_traversal is already True (e.g. from descendant include logic overriding user_exclude_dir_raw),
+                        # keep that decision and its reason.
+
+                else:  # Default include for traversal (no include_patterns provided)
+                    is_included_for_traversal = True
+                    reason_dir_activity = "Traversal allowed by default"
+
+                # 3. Handle outcome
+                if not is_included_for_traversal:
                     stats["excluded_items_count"] += 1
-                    log_events.append(
-                        {
-                            "path": relative_dir_path_str,
-                            "item_type": "folder",
-                            "status": "excluded",
-                            "size_kb": dir_size_kb,
-                            "reason": reason_dir_excluded,
-                        }
-                    )
+                    log_events.append({
+                        "path": relative_dir_path_str,
+                        "item_type": "folder",
+                        "status": "excluded",
+                        "size_kb": dir_size_kb,
+                        "reason": reason_dir_activity, # This is the exclusion reason
+                    })
                     dirs_to_remove.append(dir_name)
                 else:
-                    log_events.append(
-                        {
-                            "path": relative_dir_path_str,
-                            "item_type": "folder",
-                            "status": "included",
-                            "size_kb": dir_size_kb,
-                            "reason": None,
-                        }
-                    )
+                    # Logged as "included" meaning it's included for traversal
+                    log_events.append({
+                        "path": relative_dir_path_str,
+                        "item_type": "folder",
+                        "status": "included",
+                        "size_kb": dir_size_kb,
+                        "reason": reason_dir_activity, # This is the inclusion reason
+                    })
 
             # Prune directories from os.walk traversal by modifying dirs_orig in-place
             if dirs_to_remove:

@@ -30,8 +30,29 @@ def matches_pattern(path_str: str, pattern_str: str) -> bool:
         # Check if any component (directory name) in path_obj.parts matches this dir_target_name_pattern.
         # path_obj.parts for "a/b/c.txt" is ("a", "b", "c.txt")
         # path_obj.parts for "a/b/c" (dir) is ("a", "b", "c")
+        #
+        # NEW LOGIC for directory patterns:
+        # A pattern "somedir/" should match the path "somedir" itself,
+        # or any path starting with "somedir/" (i.e., items inside the directory).
+        path_str_normalized_for_fnmatch = str(path_obj).replace(os.sep, "/")
+        if path_str_normalized_for_fnmatch == dir_target_name_pattern or \
+           path_str_normalized_for_fnmatch.startswith(norm_pattern): # norm_pattern already ends with /
+            return True
+
+        # Original logic for matching components (e.g., for ".git/", "__pycache__/"):
+        # This is useful for default ignore patterns that might appear anywhere.
+        # If dir_target_name_pattern contains wildcards, this is more complex.
+        # For now, let's assume the above direct path matching is primary for dir patterns.
+        # The component matching below is more for broad "ignore this named directory anywhere"
+        if "**/" not in pattern_str: # If it's not a "**/dirname/" type pattern, the above check is sufficient
+            return False # Path itself didn't match, and it's not a glob component search
+
+        # Retain component matching for patterns like "**/__pycache__/"
+        if dir_target_name_pattern.startswith("**/"): # Already handled above by stripping "**/"
+             pass # dir_target_name_pattern is now the actual name to find in parts
+
         for part in path_obj.parts:
-            if fnmatch.fnmatch(part, dir_target_name_pattern):
+            if fnmatch.fnmatch(part, dir_target_name_pattern): # dir_target_name_pattern here is like "__pycache__"
                 return True
         return False
 
