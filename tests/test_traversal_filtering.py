@@ -141,7 +141,7 @@ def test_no_default_ignore_flag(runner: CliRunner, temp_test_dir: Path):
     Real .pyc files will still be excluded due to UnicodeDecodeError unless --ignore-errors is on.
     """
     original_cwd = os.getcwd()
-    os.chdir(temp_test_dir) # CWD is now temp_test_dir
+    os.chdir(temp_test_dir)
     json_output_str = ""
 
     try:
@@ -178,7 +178,6 @@ def test_no_default_ignore_flag(runner: CliRunner, temp_test_dir: Path):
         ".git/HEAD",
         "__pycache__/utils.cpython-39.pyc",  # This one is text, should be included.
         "node_modules/placeholder.js",
-        # Real binary .pyc files created by pytest in tests/__pycache__ will be excluded due to read error.
     }
     assert included_files == expected_after_no_default_ignore
 
@@ -484,10 +483,10 @@ def test_include_overrides_exclude_behavior(runner: CliRunner, temp_test_dir: Pa
     # Expected: README.md (matches *.md)
     #           config.yaml (matches config.yaml)
     #           docs/index.md (matches docs/index.md, overrides docs/ exclusion for itself)
-    #           docs/api.md (matches *.md, this include takes precedence over 'docs/' exclude)
-    expected_final_files = {"README.md", "config.yaml", "docs/index.md", "docs/api.md"}
+    # NOT Expected: docs/api.md (because "docs/" exclude is more specific than "*.md" include for this file)
+    expected_final_files = {"README.md", "config.yaml", "docs/index.md"}
     assert included_files == expected_final_files
-    # assert "docs/api.md" not in included_files # This was the old assertion
+    assert "docs/api.md" not in included_files
     assert "src/main.py" not in included_files # Due to include patterns restricting scope
 
     # Placeholder for log assertion - this would ideally use log_events_for_assertion
@@ -538,9 +537,9 @@ def test_include_overrides_exclude_behavior(runner: CliRunner, temp_test_dir: Pa
     assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
     included_files = get_included_files_from_json(json_output_str)
 
-    # NEW EXPECTATION: docs/index.md is included because "*.md" (include) takes precedence
-    # over "docs/index.md" (exclude) for the file "docs/index.md".
-    expected_included_md_files = {"README.md", "docs/api.md", "docs/index.md"}
+    # NEW EXPECTATION: docs/index.md is EXCLUDED because "docs/index.md" (exclude, score 33)
+    # is more specific than "*.md" (include, score -1).
+    expected_included_md_files = {"README.md", "docs/api.md"}
     assert included_files == expected_included_md_files
     assert "config.yaml" not in included_files # Not a .md file and not explicitly included
 
@@ -560,22 +559,26 @@ def assert_log_event_exists(log_events, expected_event_details, check_size=False
                  if event.get(key, "").replace(os.sep, "/") != value.replace(os.sep, "/"):
                     match = False
                     break
-            elif event.get(key) != value:
+            elif key == "reason": # For reason, check if actual event reason starts with expected
+                if not event.get(key, "").startswith(str(value) if value is not None else ""): # Ensure value is str for startswith
+                    match = False
+                    break
+            elif event.get(key) != value: # This elif should align with the one for "reason" and "path"
                 match = False
                 break
         if not check_size and match: # Basic match without size
              # check if all expected keys are present in event
             all_keys_present = True
-            for key in expected_event_details.keys():
-                if key not in event:
+            for key_expected in expected_event_details.keys(): # Iterate over expected keys
+                if key_expected not in event:
                     all_keys_present = False
                     break
             if all_keys_present:
                 found = True
                 break
-        elif match and check_size and event.get("size_kb") == expected_event_details.get("size_kb"):
+        elif match and check_size and event.get("size_kb") == expected_event_details.get("size_kb"): # check_size implies all keys must be there
             found = True
-            break # Full match with size
+            break
 
     assert found, f"Log event not found or details mismatch for: {expected_event_details}. Log events: {log_events}"
 
@@ -658,7 +661,7 @@ def test_include_file_in_excluded_dir(run_process_directory_direct):
 
     assert_log_event_exists(log_events, {
         "path": "data/important.txt", "item_type": "file", "status": "included",
-        "reason": "Matches user-specified include pattern"
+        "reason": "Matches more specific include pattern" # Updated prefix
     })
     assert_log_event_exists(log_events, {
         "path": "data/other.txt", "item_type": "file", "status": "excluded",
@@ -674,7 +677,7 @@ def test_include_file_in_excluded_dir(run_process_directory_direct):
     # However, due to include pattern "data/important.txt", traversal is allowed.
     assert_log_event_exists(log_events, {
         "path": "data", "item_type": "folder", "status": "included",
-        "reason": "Traversal allowed to find descendants matching include patterns, though directory itself matches exclude pattern: data"
+        "reason": "Traversal allowed: item matches user exclude ('data/'), but an include pattern targets a descendant."
     })
 
 
@@ -692,7 +695,7 @@ def test_include_specific_file_overrides_broad_exclude(run_process_directory_dir
 
     assert_log_event_exists(log_events, {
         "path": "debug.log", "item_type": "file", "status": "included",
-        "reason": "Matches user-specified include pattern"
+        "reason": "Matches more specific include pattern" # Updated prefix
     })
     assert_log_event_exists(log_events, {
         "path": "app.log", "item_type": "file", "status": "excluded",
@@ -723,7 +726,7 @@ def test_include_subdir_in_excluded_parent_dir(run_process_directory_direct):
     # Log for config/priority/db.conf
     assert_log_event_exists(log_events, {
         "path": "config/priority/db.conf", "item_type": "file", "status": "included",
-        "reason": "Matches user-specified include pattern"
+        "reason": "Matches more specific include pattern" # Updated prefix
     })
     # Log for config/main.conf
     assert_log_event_exists(log_events, {
@@ -739,7 +742,7 @@ def test_include_subdir_in_excluded_parent_dir(run_process_directory_direct):
     # Traversal is allowed.
     assert_log_event_exists(log_events, {
         "path": "config/priority", "item_type": "folder", "status": "included",
-        "reason": "Matches user-specified include pattern (traversal allowed)"
+        "reason": "Matches more specific include pattern (traversal allowed)" # Updated prefix, assuming file "config/priority/" is checked against exclude "config/"
     })
     # Directory 'config/other':
     # `matches_user_include_dir` for `config/other/` with `include_patterns=['config/priority/']` is FALSE.
@@ -759,7 +762,7 @@ def test_include_subdir_in_excluded_parent_dir(run_process_directory_direct):
     # The log for 'config' itself should reflect its own direct match.
     assert_log_event_exists(log_events, {
         "path": "config", "item_type": "folder", "status": "included",
-        "reason": "Traversal allowed to find descendants matching include patterns, though directory itself matches exclude pattern: config"
+        "reason": "Traversal allowed: item matches user exclude ('config/'), but an include pattern targets a descendant."
     })
 
 
@@ -797,7 +800,7 @@ def test_default_exclude_hidden_file_overridden_by_include(run_process_directory
     })
     assert_log_event_exists(log_events, {
         "path": "visible.txt", "item_type": "file", "status": "excluded",
-        "reason": "Does not match any include pattern"
+        "reason": "Does not match any user-specified include pattern" # More precise
     })
 
 
@@ -818,14 +821,14 @@ def test_implied_exclude_when_include_patterns_active(run_process_directory_dire
     })
     assert_log_event_exists(log_events, {
         "path": "another.txt", "item_type": "file", "status": "excluded",
-        "reason": "Does not match any include pattern"
+        "reason": "Does not match any user-specified include pattern" # More precise
     })
     # For the "config" directory itself:
     # It does not match "specific.txt", so it's excluded.
     # Its contents like .tmp are never visited at the file-level by dirdigest's logic.
     assert_log_event_exists(log_events, {
         "path": "config", "item_type": "folder", "status": "excluded",
-        "reason": "Does not match any include pattern (directory)"
+        "reason": "Does not match any user-specified include pattern (directory)" # More precise
     })
     # Verify no individual log for config/.tmp
     for event in log_events:
@@ -849,7 +852,7 @@ def test_explicit_exclude_over_implied_exclude(run_process_directory_direct):
 
     assert_log_event_exists(log_events, {
         "path": "another.txt", "item_type": "file", "status": "excluded",
-        "reason": "Does not match any include pattern"
+        "reason": "Does not match any user-specified include pattern" # More precise
     })
     # For "temp.log":
     # 1. `matches_user_include` is False.

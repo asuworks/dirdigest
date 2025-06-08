@@ -2,79 +2,115 @@
 import fnmatch
 import os
 from pathlib import Path
-from typing import List  # Ensure List is imported
+from typing import List, Optional
+
+
+def _calculate_specificity_score(pattern_str: str) -> int:
+    """
+    Calculates a specificity score for a given pattern string.
+    Higher score means more specific.
+    Simple formula: length - wildcard_penalties + depth_bonus.
+    """
+    pattern = pattern_str.strip().replace(os.sep, "/") # Normalize separators
+
+    score = len(pattern)
+    score -= pattern.count("*") * 5
+    score -= pattern.count("?") * 3
+    score += pattern.count("/") * 10
+
+    return score
+
+
+def compare_specificity(pattern1_str: str, pattern2_str: str) -> int:
+    """
+    Compares two pattern strings for specificity using _calculate_specificity_score.
+    Returns:
+        1 if pattern1_str is more specific than pattern2_str.
+        -1 if pattern2_str is more specific than pattern1_str.
+        0 if they have equal specificity based on the scoring.
+    """
+    score1 = _calculate_specificity_score(pattern1_str)
+    score2 = _calculate_specificity_score(pattern2_str)
+
+    if score1 > score2:
+        return 1
+    elif score2 > score1:
+        return -1
+    else:
+        return 0
+
+
+def get_most_specific_pattern(path_str: str, patterns: List[str]) -> Optional[str]:
+    """
+    Given a path_str and a list of patterns, returns the most specific pattern that matches the path.
+    1. Filters the input `patterns` to only those that actually match `path_str`.
+    2. If the `path_str` itself is an exact match to one of these filtered patterns, it wins.
+    3. Otherwise, the matching pattern with the highest specificity score wins.
+    4. If scores are tied, the one appearing last in the *original* `patterns` list wins.
+    """
+    if not patterns:
+        return None
+
+    normalized_path_str = path_str.strip().replace(os.sep, "/")
+
+    actual_matching_patterns_info = []
+    for i, p_orig in enumerate(patterns):
+        p_norm = p_orig.strip().replace(os.sep, "/")
+        if matches_pattern(normalized_path_str, p_norm):
+            actual_matching_patterns_info.append({
+                "original": p_orig,
+                "normalized": p_norm,
+                "original_index": i,
+                "score": _calculate_specificity_score(p_norm)
+            })
+
+    if not actual_matching_patterns_info:
+        return None
+
+    # Rule 2: Exact path string match is highest priority
+    for entry in actual_matching_patterns_info:
+        if entry["normalized"] == normalized_path_str:
+            return entry["original"]
+
+    # Rule 3 & 4: Find the highest scoring pattern, last one (by original index) wins on tie
+    actual_matching_patterns_info.sort(key=lambda e: (e["score"], e["original_index"]), reverse=True)
+
+    return actual_matching_patterns_info[0]["original"]
 
 
 def matches_pattern(path_str: str, pattern_str: str) -> bool:
     """
     Checks if the given path_str matches the pattern_str.
-    Handles common cases like 'dirname/', '**/dirname/', '*.ext', '**/file.ext'.
     """
-    path_obj = Path(path_str)
-    # Normalize pattern: replace os.sep with /, then process.
-    norm_pattern = pattern_str.replace(os.sep, "/")
+    path_obj = Path(path_str.replace(os.sep, "/")) # path_str is already normalized by caller
+    norm_pattern = pattern_str.strip().replace(os.sep, "/") # pattern_str is already normalized by caller
 
-    # Case 1: Pattern targets a directory (e.g., "node_modules/", "**/__pycache__/", "*.egg-info/")
-    # These patterns identify a directory name/pattern that, if present anywhere in the path_obj's components,
-    # should cause a match for the directory or any file/subdir within it.
+    # Case 1: Pattern targets a directory (ends with "/")
     if norm_pattern.endswith("/"):
-        # Extract the core directory name/pattern to match against path components.
-        # e.g., "node_modules/", "**/__pycache__/", "*.egg-info/"
-        dir_target_name_pattern = norm_pattern.rstrip("/")  # "node_modules", "**/__pycache__", "*.egg-info"
-
-        if dir_target_name_pattern.startswith("**/"):
-            # If "**/dirname", the part to match against components is "dirname"
-            dir_target_name_pattern = dir_target_name_pattern[3:]  # "__pycache__" or "dirname"
-
-        # Now, dir_target_name_pattern is something like "node_modules", "__pycache__", "*.egg-info"
-        # Check if any component (directory name) in path_obj.parts matches this dir_target_name_pattern.
-        # path_obj.parts for "a/b/c.txt" is ("a", "b", "c.txt")
-        # path_obj.parts for "a/b/c" (dir) is ("a", "b", "c")
-        #
-        # NEW LOGIC for directory patterns:
-        # A pattern "somedir/" should match the path "somedir" itself,
-        # or any path starting with "somedir/" (i.e., items inside the directory).
-        path_str_normalized_for_fnmatch = str(path_obj).replace(os.sep, "/")
-        if path_str_normalized_for_fnmatch == dir_target_name_pattern or \
-           path_str_normalized_for_fnmatch.startswith(norm_pattern): # norm_pattern already ends with /
+        dir_target_name_pattern = norm_pattern.rstrip("/")
+        if path_str == dir_target_name_pattern or path_str.startswith(norm_pattern):
             return True
-
-        # Original logic for matching components (e.g., for ".git/", "__pycache__/"):
-        # This is useful for default ignore patterns that might appear anywhere.
-        # If dir_target_name_pattern contains wildcards, this is more complex.
-        # For now, let's assume the above direct path matching is primary for dir patterns.
-        # The component matching below is more for broad "ignore this named directory anywhere"
-        if "**/" not in pattern_str: # If it's not a "**/dirname/" type pattern, the above check is sufficient
-            return False # Path itself didn't match, and it's not a glob component search
-
-        # Retain component matching for patterns like "**/__pycache__/"
-        if dir_target_name_pattern.startswith("**/"): # Already handled above by stripping "**/"
-             pass # dir_target_name_pattern is now the actual name to find in parts
-
-        for part in path_obj.parts:
-            if fnmatch.fnmatch(part, dir_target_name_pattern): # dir_target_name_pattern here is like "__pycache__"
-                return True
+        if dir_target_name_pattern.startswith("**/"): # e.g. **/node_modules/
+            actual_name_to_find_in_parts = dir_target_name_pattern[3:]
+            for part in path_obj.parts:
+                if fnmatch.fnmatch(part, actual_name_to_find_in_parts):
+                    return True
         return False
-
     # Case 2: Pattern targets a file or a path not explicitly ending in "/"
-    # (e.g., "*.py", ".DS_Store", "**/specific.log", "LICENSE")
     else:
-        if norm_pattern.startswith("**/"):
-            # For patterns like "**/*.log" or "**/exact_filename.txt"
-            # These should match against the base name of the path_obj.
-            file_target_basename_pattern = norm_pattern[3:]  # "*.log" or "exact_filename.txt"
+        if norm_pattern.startswith("**/"): # e.g. "**/file.py" or "**/*.log"
+            file_target_basename_pattern = norm_pattern[3:]
             return fnmatch.fnmatch(path_obj.name, file_target_basename_pattern)
-        else:
-            # For patterns like "*.py", "README.md", or "data/*.csv".
-            # These are typically matched against the full relative path string.
-            # (fnmatch behavior: "*.py" matches "file.py" but not "dir/file.py")
-            path_str_normalized_for_fnmatch = str(path_obj).replace(os.sep, "/")
-            return fnmatch.fnmatch(path_str_normalized_for_fnmatch, norm_pattern)
+        else: # e.g., "*.py", "file.py", "some_dir/*.txt"
+            if "/" not in norm_pattern: # Simple pattern like "*.txt" or "file.py"
+                return path_obj.match(norm_pattern) # Match against filename part
+            else: # Pattern includes path separators, e.g., "dir/*.py"
+                return fnmatch.fnmatch(path_str, norm_pattern) # Use path_str directly as it's already normalized
 
 
 def matches_patterns(
     path_str: str, patterns: List[str]
-) -> bool:  # Changed from list[str] to List[str] for older Pythons if needed
+) -> bool:
     """Checks if the path_str matches any of the provided patterns."""
     for pattern_item in patterns:
         if matches_pattern(path_str, pattern_item):
@@ -87,6 +123,4 @@ def is_path_hidden(path_obj: Path) -> bool:
     Checks if any part of the path starts with a '.' character,
     excluding the root '.' itself if path_obj is Path(".").
     """
-    # Path(".").parts is ('.',), Path(".git").parts is ('.git',)
-    # Path("src/.config").parts is ("src", ".config")
     return any(part.startswith(".") for part in path_obj.parts if part not in (".", os.sep))

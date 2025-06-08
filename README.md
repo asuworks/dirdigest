@@ -129,8 +129,8 @@ The following table lists the command-line options and their corresponding keys 
 | `DIRECTORY`                   | N/A   | `directory`             | The path to the directory to process. If omitted, defaults to the current working directory (`.`).                                                                      | `.`                |
 | `--output PATH`               | `-o`  | `output`                | Path to the output file. If omitted, the digest is written to standard output (stdout).                                                                                 | `None` (stdout)    |
 | `--format [json\|markdown]`   | `-f`  | `format`                | Output format for the digest. Choices: `json`, `markdown`.                                                                                                              | `markdown`         |
-| `--include PATTERN`           | `-i`  | `include`               | Glob pattern(s) for files/directories to INCLUDE. If specified, only items matching these patterns are processed. Can be used multiple times or comma-separated.      | `None`             |
-| `--exclude PATTERN`           | `-x`  | `exclude`               | Glob pattern(s) for files/directories to EXCLUDE. Takes precedence over include patterns. Can be used multiple times or comma-separated. Default ignores also apply.    | `None`             |
+| `--include PATTERN`           | `-i`  | `include`               | Glob pattern(s) for files/directories to INCLUDE. See 'Glob Pattern Details' for how include and exclude patterns interact based on specificity.      | `None`             |
+| `--exclude PATTERN`           | `-x`  | `exclude`               | Glob pattern(s) for files/directories to EXCLUDE. See 'Glob Pattern Details' for how include and exclude patterns interact based on specificity. Default ignores also apply.    | `None`             |
 | `--max-size KB`               | `-s`  | `max_size`              | Maximum size (in KB) for individual files to be included. Larger files are excluded.                                                                                    | `300`              |
 | `--max-depth INT`             | `-d`  | `max_depth`             | Maximum depth of directories to traverse. Depth 0 processes only the starting directory's files. Set to `null` in YAML for unlimited.                               | `None` (unlimited) |
 | `--no-default-ignore`         |       | `no_default_ignore`     | Disable all default ignore patterns (e.g., `.git`, `__pycache__`, `node_modules`, common binary/media files, hidden items like `.*`).                                     | `False`            |
@@ -151,12 +151,52 @@ The following table lists the command-line options and their corresponding keys 
 
 **Glob Pattern Details (`--include`, `--exclude`):**
 
-*   Patterns are applied to relative paths from the base directory.
+*   Patterns are applied to relative paths from the base directory being processed.
 *   Use standard glob syntax (e.g., `*.py`, `src/**/`, `data/*.csv`).
 *   To match a directory specifically, ensure the pattern ends with a `/` (e.g., `docs/`).
 *   Multiple patterns can be supplied by using the option multiple times (e.g., `-i '*.py' -i '*.md'`) or by providing a comma-separated list (e.g., `-x '*.log,tmp/,build/'`).
-*   Exclusion patterns take precedence over inclusion patterns.
-*   Default ignore patterns are applied *in addition* to user-specified excludes unless `--no-default-ignore` is set. These include common VCS directories (`.git/`), build artifacts (`build/`, `dist/`, `__pycache__/`, `node_modules/`), hidden files/directories (`.*`), and common binary/media file extensions.
+
+**How Include and Exclude Patterns Interact (Specificity Rules):**
+
+`dirdigest` uses a "most specific pattern wins" logic to decide whether a file or directory is processed when it matches both include and exclude patterns, or when interacting with default ignore patterns.
+
+1.  **Primary Rule: Depth of Matching Pattern Wins.**
+    *   The pattern that matches the "deepest" or longest path prefix of the item is considered the most specific. This applies whether the pattern is an include or an exclude.
+    *   *Example 1:* For a path `data/config/prod.ini`:
+        *   A pattern `data/config/prod.ini` (exact file) is more specific than `data/config/` (parent directory).
+        *   `data/config/` is more specific than `data/`.
+        *   `data/config/*.ini` is more specific than `data/*.ini`.
+    *   *Example 2 (Directory vs. File Glob):* For a path `docs/api.md`:
+        *   The pattern `docs/` (matching the directory part) is considered more specific than a general file glob `*.md` (matching only the filename part).
+        *   Thus, if you use `-x docs/ -i *.md`, `docs/api.md` will be **excluded** because `docs/` is the more specific matching pattern.
+    *   *Example 3 (Deeper Path Glob vs. Shallower Directory):* For a path `data/foo/errors.log`:
+        *   The pattern `data/foo/*.log` is more specific than `data/`.
+        *   Thus, if you use `-x data/ -i data/foo/*.log`, `data/foo/errors.log` will be **included**.
+
+2.  **Secondary Rule: Explicit Name Wins Over General Regex/Glob (Clarifier for Depth).**
+    *   If comparing patterns that seem to match at a similar depth (e.g., two filename globs, or an explicit filename vs. a glob), the one that is more "explicit" (fewer wildcards, more literal characters) is more specific.
+    *   *Example:* For a path `debug.log`:
+        *   The pattern `debug.log` (an explicit filename) is more specific than `*.log` (a general glob).
+        *   Thus, if you use `-x *.log -i debug.log`, `debug.log` will be **included**.
+
+**Decision Process for a Given Path:**
+*   The tool finds the most specific include pattern (`MSI`) and the most specific exclude pattern (`MSE`) that match the path, based on the rules above.
+*   If `MSI` and `MSE` are the exact same pattern string (e.g., `-i foo.txt -x foo.txt`), `dirdigest` will raise an error, as this is a direct contradiction.
+*   If both `MSI` and `MSE` exist (and are different pattern strings) and have *exactly equal specificity* (a rare scenario with well-defined user patterns), `dirdigest` will also raise an error, prompting you to make your patterns more distinct.
+*   Otherwise, the rule (include or exclude) from the single most specific pattern (`MSI` or `MSE`) determines the outcome.
+*   If only an include or only an exclude pattern matches, that rule applies.
+
+**Interaction with Default Ignores:**
+*   Default ignore patterns (e.g., for `.git`, `node_modules/`, hidden files `.*`) are also part of this specificity system.
+*   An explicit user-defined include or exclude pattern can override a default ignore if the user's pattern is more specific.
+*   *Example:* `.env` is typically default-ignored (as a hidden file).
+    *   If you use `-i .env`, your include `'.env'` is an exact match and thus more specific than the general "hidden file" rule, so `.env` will be **included**.
+    *   If you use `-x .env`, it will also be more specific and ensure it's excluded.
+*   Use `--no-default-ignore` to disable all default ignore patterns if you need full manual control.
+
+**Implied Exclusion with `--include`:**
+*   If any `--include` patterns are provided, `dirdigest` operates in an "include-only" mode: only files/directories that match an include rule (and are not subsequently excluded by a more specific exclude rule or a non-overridden default ignore) will be processed. Anything not matching an active include rule is implicitly excluded.
+*   If no `--include` patterns are given, everything is considered for processing by default, subject only to exclude rules and default ignores.
 
 ## Configuration File (`.dirdigest`)
 
@@ -219,16 +259,14 @@ default:
   no_default_ignore: false  # Set to true to disable all default ignore patterns
                             # (e.g., .git, __pycache__, common binary/media files)
 
-  # Include patterns: process only these if specified.
-  # Exclusions are applied first.
+  # Include patterns. If specified, implies "include-only" mode. See 'Glob Pattern Details' for interaction with excludes.
   include:
     - "*.py"
     - "*.md"
     - "src/"
     # - "docs/**/*.rst" # Example of deeper pattern
 
-  # Exclude patterns: always skip these. Takes precedence over includes.
-  # Default ignores also apply unless no_default_ignore is true.
+  # Exclude patterns. See 'Glob Pattern Details' for interaction with includes.
   exclude:
     - "*.log"
     - "tests/"
@@ -303,12 +341,9 @@ default:
 5.  **Include a specific hidden file (e.g., `.envrc`) while keeping most default ignores active (this is tricky):**
     The most straightforward way to include a specific hidden file that would normally be ignored by `.*` or other hidden-file logic is to use `--no-default-ignore` and then explicitly include what you want, and explicitly exclude what you *don't* want from the usual defaults.
     ```bash
-    dirdigest . --no-default-ignore \
-        --include ".envrc,src/*.py,README.md" \
-        --exclude ".git/,__pycache__/,*.log,node_modules/" \
-        -o my_app_context.md
+    dirdigest . --include ".envrc" -o my_app_context.md
     ```
-    This gives you fine-grained control when default behaviors for hidden files conflict with your needs.
+    In this case, `".envrc"` as an include pattern is an exact match and will override the default exclusion for hidden files. If you find a default ignore pattern is still too general and excluding something you want to include via a similarly general include, you might need to make your include pattern more specific or, as a last resort, use `--no-default-ignore` and rebuild your include/exclude lists comprehensively.
 
 6.  **Troubleshoot which files are being processed or ignored with verbose logging:**
     ```bash
