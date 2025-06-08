@@ -601,7 +601,7 @@ def run_process_directory_direct(tmp_path):
 
     def _runner(file_structure: dict, include_patterns=None, exclude_patterns=None,
                 no_default_ignore=False, max_depth=None, follow_symlinks=False,
-                max_size_kb=1024, ignore_read_errors=False):
+                max_size_kb=1024, ignore_read_errors=False, filter_mode: str = "default"):
 
         for item_path, content in file_structure.items():
             path_obj = tmp_path / item_path
@@ -624,6 +624,7 @@ def run_process_directory_direct(tmp_path):
             follow_symlinks=follow_symlinks,
             max_size_kb=max_size_kb,
             ignore_read_errors=ignore_read_errors,
+            filter_mode=filter_mode, # Pass filter_mode
         )
 
         # Consume generator to build tree for simpler assertions if needed
@@ -1126,4 +1127,32 @@ def test_error_identical_include_exclude_pattern(run_process_directory_direct):
             files_dir,
             include_patterns=["data/"],
             exclude_patterns=["data/"]
+        )
+
+def test_error_equally_specific_conflicting_patterns(run_process_directory_direct):
+    """
+    Tests that a ValueError is raised if different include and exclude patterns
+    match the same path with equal specificity.
+    """
+    files = {"src/component.txt": "content"}
+    # Pattern A (include): */*component.txt (score 18)
+    # Pattern B (exclude): src/comp*.txt (score 18)
+    # Both match "src/component.txt"
+    include_p = ["*/*component.txt"]
+    exclude_p = ["src/comp*.txt"]
+
+    # Verify scores are indeed equal for the path (sanity check for test design)
+    # Note: _calculate_specificity_score is not directly imported here,
+    # but this check is for test design, not runtime.
+    # score_A = 18 - 2*5 + 1*10 = 18
+    # score_B = 13 - 1*5 + 1*10 = 18
+
+    with pytest.raises(
+        ValueError,
+        match="Include pattern '\\*\\/\\*component.txt' and exclude pattern 'src/comp\\*.txt' have equal specificity for path 'src/component.txt'."
+    ):
+        run_process_directory_direct(
+            files,
+            include_patterns=include_p,
+            exclude_patterns=exclude_p
         )

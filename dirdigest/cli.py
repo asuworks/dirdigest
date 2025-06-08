@@ -1,7 +1,9 @@
 import functools  # Added for cmp_to_key
+import functools  # Added for cmp_to_key
 import json as json_debugger  # For debug tree printing
 import logging
 import pathlib
+import sys  # Added for sys.argv
 import time
 from typing import List, Tuple  # Added for type hints
 
@@ -182,13 +184,26 @@ def main_cli(
 ):
     start_time = time.monotonic()
 
+    # Determine filter_mode based on first occurrence of -i/-x or --include/--exclude
+    determined_filter_mode = "default"
+    args = sys.argv[1:] # Gets OS arguments, excluding the script name itself
+    for arg in args:
+        if arg == '-i' or arg == '--include':
+            determined_filter_mode = "include_first"
+            break
+        if arg == '-x' or arg == '--exclude':
+            determined_filter_mode = "exclude_first"
+            break
+
     cfg_file_values = dirdigest_config.load_config_file(config_path_cli)
     cli_params_for_merge = ctx.params.copy()
     if "directory_arg" in cli_params_for_merge and "directory" not in cli_params_for_merge:
         cli_params_for_merge["directory"] = cli_params_for_merge.pop("directory_arg")
     if "config_path_cli" in cli_params_for_merge and "config" not in cli_params_for_merge:
         cli_params_for_merge["config"] = cli_params_for_merge.pop("config_path_cli")
+
     final_settings = dirdigest_config.merge_config(cli_params_for_merge, cfg_file_values, ctx)
+    final_settings['filter_mode'] = determined_filter_mode # Add determined mode to settings
 
     final_verbose = final_settings.get("verbose", 0)
     final_quiet = final_settings.get("quiet", False)
@@ -281,6 +296,7 @@ def main_cli(
         follow_symlinks=final_follow_symlinks,
         max_size_kb=final_max_size,
         ignore_read_errors=final_ignore_errors,
+        filter_mode=final_settings.pop("filter_mode", "default"), # Pass to core
     )
 
     # Consume the generator to a list. This will populate log_events_from_core.
