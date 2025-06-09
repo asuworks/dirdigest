@@ -139,7 +139,7 @@ def process_directory_recursive(
                     elif operational_mode == OperationalMode.MODE_ONLY_INCLUDE:
                         if msi_details:
                             if final_relevant_default_rule_props and \
-                               _compare_specificity(file_path_obj, msi_details, final_relevant_default_rule_props) < 0:
+                               _compare_specificity(file_path_obj, msi_details, final_relevant_default_rule_props, False) < 0: # file path -> False
                                 current_path_state = PathState.DEFAULT_EXCLUDED
                                 decision_reason = f"MSI '{msi_details.raw_pattern}' overridden by Default Rule '{final_relevant_default_rule_props.raw_pattern}'"
                             else:
@@ -166,7 +166,7 @@ def process_directory_recursive(
                             decision_reason = "No matching MSI (MODE_INCLUDE_FIRST)"
                         else: # MSI exists
                             if mse_details:
-                                comparison = _compare_specificity(file_path_obj, msi_details, mse_details)
+                                comparison = _compare_specificity(file_path_obj, msi_details, mse_details, False) # file path -> False
                                 if comparison == 0:
                                     current_path_state = PathState.ERROR_CONFLICTING_PATTERNS
                                     decision_reason = f"MSI '{msi_details.raw_pattern}' conflicts with MSE '{mse_details.raw_pattern}'"
@@ -177,7 +177,7 @@ def process_directory_recursive(
 
                             if current_path_state == PathState.PENDING_EVALUATION: # MSI won against MSE or no MSE
                                 if final_relevant_default_rule_props and \
-                                   _compare_specificity(file_path_obj, msi_details, final_relevant_default_rule_props) < 0:
+                                   _compare_specificity(file_path_obj, msi_details, final_relevant_default_rule_props, False) < 0: # file path -> False
                                     current_path_state = PathState.DEFAULT_EXCLUDED
                                     decision_reason = f"MSI '{msi_details.raw_pattern}' overridden by Default Rule '{final_relevant_default_rule_props.raw_pattern}'"
                                 else:
@@ -188,10 +188,10 @@ def process_directory_recursive(
 
                     elif operational_mode == OperationalMode.MODE_EXCLUDE_FIRST:
                         if mse_details:
-                            if msi_details and _compare_specificity(file_path_obj, msi_details, mse_details) > 0: # MSI rescues
+                            if msi_details and _compare_specificity(file_path_obj, msi_details, mse_details, False) > 0: # MSI rescues # file path -> False
                                 current_path_state = PathState.MATCHED_BY_USER_INCLUDE # Tentatively included by rescue
                                 decision_reason = f"MSI '{msi_details.raw_pattern}' overrides MSE '{mse_details.raw_pattern}'"
-                            elif msi_details and _compare_specificity(file_path_obj, msi_details, mse_details) == 0: # Conflict
+                            elif msi_details and _compare_specificity(file_path_obj, msi_details, mse_details, False) == 0: # Conflict # file path -> False
                                 current_path_state = PathState.ERROR_CONFLICTING_PATTERNS
                                 decision_reason = f"MSE '{mse_details.raw_pattern}' conflicts with MSI '{msi_details.raw_pattern}'"
                             else: # MSE wins or no MSI
@@ -202,7 +202,7 @@ def process_directory_recursive(
                             # Was not excluded by user MSE, or was rescued by MSI. Check default.
                             is_rescued = current_path_state == PathState.MATCHED_BY_USER_INCLUDE
                             if final_relevant_default_rule_props:
-                                if msi_details and _compare_specificity(file_path_obj, msi_details, final_relevant_default_rule_props) >= 0: # MSI overrides default
+                                if msi_details and _compare_specificity(file_path_obj, msi_details, final_relevant_default_rule_props, False) >= 0: # MSI overrides default # file path -> False
                                     current_path_state = PathState.FINAL_INCLUDED
                                     decision_reason += f"; MSI '{msi_details.raw_pattern}' overrides Default Rule '{final_relevant_default_rule_props.raw_pattern}'"
                                 else: # Default rule applies (either no MSI, or MSI not specific enough)
@@ -310,19 +310,106 @@ def process_directory_recursive(
                             dir_decision_reason = "Traverse by default"
                     elif operational_mode == OperationalMode.MODE_ONLY_INCLUDE:
                         if msi_dir_details:
+                            # Directory itself matches an include pattern.
                             if final_relevant_default_rule_props_dir and \
-                               _compare_specificity(dir_path_obj, msi_dir_details, final_relevant_default_rule_props_dir) < 0:
+                               _compare_specificity(dir_path_obj, msi_dir_details, final_relevant_default_rule_props_dir, True) < 0: # dir path -> True
                                 current_dir_item_state = PathState.DEFAULT_EXCLUDED
                                 dir_decision_reason = f"MSI '{msi_dir_details.raw_pattern}' overridden by Default '{final_relevant_default_rule_props_dir.raw_pattern}'"
                             else:
-                                current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF # MSI match implies traversal
+                                current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF # MSI match implies traversal (directory itself might not be included if pattern is e.g. "dir/*.txt")
                                 dir_decision_reason = f"Matches MSI '{msi_dir_details.raw_pattern}'"
-                        elif any(p_str.startswith(relative_dir_path_str + "/") for p_str, _ in user_include_patterns_with_indices):
-                            current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF
-                            dir_decision_reason = "Traversing for potential child MSI match (MODE_ONLY_INCLUDE)"
                         else:
-                            current_dir_item_state = PathState.IMPLICITLY_EXCLUDED_FINAL_STEP
-                            dir_decision_reason = "No MSI for dir or children (MODE_ONLY_INCLUDE)"
+                            # Directory itself does not match an MSI. Should we traverse for children?
+                            should_traverse_for_children = False
+                            for p_str, _ in user_include_patterns_with_indices:
+                                # If pattern contains '**', it could match anywhere below.
+                                if "**" in p_str:
+                                    should_traverse_for_children = True
+                                    break
+                                # If pattern has no slashes (e.g., "*.txt"), it could match files directly in this dir or subdirs.
+                                if "/" not in p_str:
+                                    should_traverse_for_children = True
+                                    break
+                                # If pattern starts with current relative path (e.g. current is "foo", pattern "foo/bar/**")
+                                # The relative_dir_path_str is "foo", p_str is "foo/bar/**"
+                                # Need to ensure we are checking for a subdirectory or content of current dir.
+                                # Path("foo/bar/**").is_relative_to(Path("foo")) is not quite right.
+                                # Check if relative_dir_path is an ancestor of p_str's directory part
+                                # or if p_str is for a child of relative_dir_path.
+                                # A simpler check: if p_str starts with (relative_dir_path_str + os.sep) or is for this dir.
+                                # This was the original check: any(p_str.startswith(relative_dir_path_str + "/")
+                                # This does not work for "**/utils/" when current dir is "project".
+
+                                # Revised check for children:
+                                # If the pattern could apply to children of this directory.
+                                # This means the pattern is not anchored to a *different* root path.
+                                # e.g., if current_dir = "src", pattern "docs/**" -> don't traverse src for this.
+                                # pattern "src/utils/**" -> traverse src.
+                                # pattern "common/**" -> traverse src, because "common" could be inside "src".
+                                # pattern "*.py" -> traverse src.
+                                # pattern "**/foo.py" -> traverse src.
+
+                                # A directory should be traversed if any include pattern:
+                                # 1. Is not anchored to a specific path (contains '**' or no '/')
+                                # 2. Is anchored under the current directory path.
+                                # This means, we prune if ALL include patterns are anchored elsewhere.
+
+                                # Let's try a more permissive approach first: if any include pattern MIGHT match.
+                                # Prune only if ALL include patterns are clearly for other unrelated branches.
+                                pattern_parts = p_str.split('/')
+                                current_dir_parts = relative_dir_path.parts if relative_dir_path != pathlib.Path(".") else []
+
+                                if not pattern_parts: continue
+
+                                if pattern_parts[0] == "**" or pattern_parts[0] == "*": # like **/* or *.txt
+                                    should_traverse_for_children = True
+                                    break
+
+                                # If pattern is 'foo/bar.txt' and current_dir_parts is ('foo',)
+                                # Then pattern_parts[0] ('foo') == current_dir_parts[0] ('foo')
+                                # This means the pattern is for this directory or a subdirectory.
+                                # If current_dir_parts is empty (we are at root), and pattern_parts[0] is not empty, traverse.
+                                if not current_dir_parts and pattern_parts[0]: # e.g. current is root, pattern is "src/..."
+                                     should_traverse_for_children = True
+                                     break
+                                if current_dir_parts and pattern_parts[0] == current_dir_parts[0]: # e.g. current is "src", pattern "src/..."
+                                     should_traverse_for_children = True
+                                     break
+                                # Case: current_dir_parts = ('project',), pattern = 'utils/file.py'
+                                # This should also traverse if 'utils' could be a child of 'project'.
+                                # The most general way: if a pattern is not anchored to a *different* path from current.
+                                # This means if pattern P is 'a/b' and current is 'x/y', prune.
+                                # If pattern P is 'a/b' and current is 'a', traverse.
+                                # If pattern P is '**/b' and current is 'x/y', traverse.
+
+                            # Fallback to previous broader check for now, needs refinement if still failing.
+                            # The original check was too strict. This is slightly less strict.
+                            # A dir is traversed if any include pattern *could* apply to its descendants.
+                            # This means the pattern is not anchored to a path that *cannot* be a descendant.
+                            if not should_traverse_for_children: # if previous specific checks didn't confirm
+                                for p_str, _ in user_include_patterns_with_indices:
+                                    if "**" in p_str or "/" not in p_str: # Non-anchored or filename globs
+                                        should_traverse_for_children = True
+                                        break
+                                    # If p_str is 'a/b/c' and relative_dir_path_str is 'a/b', then traverse.
+                                    # If p_str is 'a/b/c' and relative_dir_path_str is 'a', then traverse.
+                                    # If p_str is 'a/b/c' and relative_dir_path_str is 'd', then don't.
+                                    # This is equivalent to: is relative_dir_path_str an ancestor of p_str's dir part?
+                                    # Or, more simply, does p_str start with relative_dir_path_str? (for anchored parts)
+                                    # Or, if relative_dir_path_str is ".", does p_str not contain unrelated root?
+                                    if relative_dir_path_str == ".": # current dir is scan root
+                                        should_traverse_for_children = True # Any anchored pattern is relevant from root
+                                        break
+                                    if p_str.startswith(relative_dir_path_str + "/"):
+                                        should_traverse_for_children = True
+                                        break
+
+                            if should_traverse_for_children:
+                                current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF
+                                dir_decision_reason = "Traversing for potential child MSI match (MODE_ONLY_INCLUDE)"
+                            else:
+                                current_dir_item_state = PathState.IMPLICITLY_EXCLUDED_FINAL_STEP
+                                dir_decision_reason = "No MSI for dir or children, and no include pattern could apply to children (MODE_ONLY_INCLUDE)"
                     elif operational_mode == OperationalMode.MODE_ONLY_EXCLUDE:
                         if mse_dir_details:
                             current_dir_item_state = PathState.USER_EXCLUDED_DIRECTLY
@@ -334,35 +421,49 @@ def process_directory_recursive(
                             current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF
                             dir_decision_reason = "Not excluded"
                     elif operational_mode == OperationalMode.MODE_INCLUDE_FIRST:
-                        if not msi_dir_details:
-                            if any(p_str.startswith(relative_dir_path_str + "/") for p_str, _ in user_include_patterns_with_indices):
+                        # Must have an MSI for the dir, or an MSI that could match a child.
+                        should_traverse_for_children_if_if = False
+                        if not msi_dir_details: # If dir itself isn't matched by an include
+                            for p_str, _ in user_include_patterns_with_indices:
+                                # Similar logic to MODE_ONLY_INCLUDE for child traversal potential
+                                if "**" in p_str or "/" not in p_str:
+                                    should_traverse_for_children_if_if = True
+                                    break
+                                if relative_dir_path_str == ".":
+                                    should_traverse_for_children_if_if = True
+                                    break
+                                if p_str.startswith(relative_dir_path_str + "/"):
+                                    should_traverse_for_children_if_if = True
+                                    break
+
+                            if should_traverse_for_children_if_if:
                                 current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF
                                 dir_decision_reason = "Traversing for child MSI (MODE_INCLUDE_FIRST)"
                             else:
                                 current_dir_item_state = PathState.IMPLICITLY_EXCLUDED_FINAL_STEP
-                                dir_decision_reason = "No MSI for dir or children (MODE_INCLUDE_FIRST)"
+                                dir_decision_reason = "No MSI for dir or children, and no include pattern could apply to children (MODE_INCLUDE_FIRST)"
                         else: # MSI for dir exists
                             if mse_dir_details:
-                                comparison = _compare_specificity(dir_path_obj, msi_dir_details, mse_dir_details)
+                                comparison = _compare_specificity(dir_path_obj, msi_dir_details, mse_dir_details, True) # dir path -> True
                                 if comparison == 0: current_dir_item_state = PathState.ERROR_CONFLICTING_PATTERNS
                                 elif comparison < 0: current_dir_item_state = PathState.USER_EXCLUDED_BY_SPECIFICITY
                             if current_dir_item_state == PathState.PENDING_EVALUATION: # MSI won or no MSE
                                 if final_relevant_default_rule_props_dir and \
-                                   _compare_specificity(dir_path_obj, msi_dir_details, final_relevant_default_rule_props_dir) < 0:
+                                   _compare_specificity(dir_path_obj, msi_dir_details, final_relevant_default_rule_props_dir, True) < 0: # dir path -> True
                                     current_dir_item_state = PathState.DEFAULT_EXCLUDED
                                 else: current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF
                             dir_decision_reason = f"MSI: {msi_dir_pattern_str}, MSE: {mse_dir_pattern_str}, Default: {final_relevant_default_rule_props_dir.raw_pattern if final_relevant_default_rule_props_dir else 'N/A'}"
                     elif operational_mode == OperationalMode.MODE_EXCLUDE_FIRST:
                         temp_state = PathState.PENDING_EVALUATION
                         if mse_dir_details:
-                            if msi_dir_details and _compare_specificity(dir_path_obj, msi_dir_details, mse_dir_details) > 0:
+                            if msi_dir_details and _compare_specificity(dir_path_obj, msi_dir_details, mse_dir_details, True) > 0: # dir path -> True
                                 temp_state = PathState.MATCHED_BY_USER_INCLUDE # Rescued
-                            elif msi_dir_details and _compare_specificity(dir_path_obj, msi_dir_details, mse_dir_details) == 0:
+                            elif msi_dir_details and _compare_specificity(dir_path_obj, msi_dir_details, mse_dir_details, True) == 0: # dir path -> True
                                 temp_state = PathState.ERROR_CONFLICTING_PATTERNS
                             else: temp_state = PathState.USER_EXCLUDED_DIRECTLY
                         if temp_state == PathState.PENDING_EVALUATION or temp_state == PathState.MATCHED_BY_USER_INCLUDE:
                             if final_relevant_default_rule_props_dir:
-                                if msi_dir_details and _compare_specificity(dir_path_obj, msi_dir_details, final_relevant_default_rule_props_dir) >= 0:
+                                if msi_dir_details and _compare_specificity(dir_path_obj, msi_dir_details, final_relevant_default_rule_props_dir, True) >= 0: # dir path -> True
                                     current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF
                                 else: current_dir_item_state = PathState.DEFAULT_EXCLUDED
                             else: current_dir_item_state = PathState.TRAVERSE_BUT_EXCLUDE_SELF

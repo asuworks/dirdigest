@@ -42,17 +42,24 @@ def props(pattern_str: str, original_index: int = 0) -> PatternProperties:
 )
 def test_compare_specificity_rules(path_str: str, p_a_str: str, p_b_str: str, expected_winner_str: str):
     path_obj = Path(path_str)
+    # Determine if the original path string indicated a directory.
+    # This should mirror the logic in determine_most_specific_pattern.
+    # IMPORTANT: Use os.sep for platform compatibility if creating test files,
+    # but for pattern matching itself, patterns are normalized to '/'.
+    # Here, path_str comes from test parameters which use '/', so checking for '/' is fine.
+    path_is_known_dir = path_str.endswith('/')
+
     pattern_a_props = props(p_a_str, 0)
     pattern_b_props = props(p_b_str, 1)
-    ab_comparison = _compare_specificity(path_obj, pattern_a_props, pattern_b_props)
-    ba_comparison = _compare_specificity(path_obj, pattern_b_props, pattern_a_props)
+    ab_comparison = _compare_specificity(path_obj, pattern_a_props, pattern_b_props, path_is_known_dir)
+    ba_comparison = _compare_specificity(path_obj, pattern_b_props, pattern_a_props, path_is_known_dir)
 
     if expected_winner_str == p_a_str:
-        assert ab_comparison == 1, f"Expected '{p_a_str}' > '{p_b_str}' for '{path_str}', got {ab_comparison}"
-        assert ba_comparison == -1, f"Expected '{p_b_str}' < '{p_a_str}' for '{path_str}', got {ba_comparison}"
+        assert ab_comparison == 1, f"Expected '{p_a_str}' > '{p_b_str}' for '{path_str}' (path_is_known_dir={path_is_known_dir}), got {ab_comparison}"
+        assert ba_comparison == -1, f"Symmetry check: Expected '{p_b_str}' < '{p_a_str}' for '{path_str}' (path_is_known_dir={path_is_known_dir}), got {ba_comparison}"
     elif expected_winner_str == p_b_str:
-        assert ab_comparison == -1, f"Expected '{p_b_str}' > '{p_a_str}' for '{path_str}', got {ab_comparison}"
-        assert ba_comparison == 1, f"Expected '{p_a_str}' < '{p_b_str}' for '{path_str}', got {ba_comparison}"
+        assert ab_comparison == -1, f"Expected '{p_b_str}' > '{p_a_str}' for '{path_str}' (path_is_known_dir={path_is_known_dir}), got {ab_comparison}"
+        assert ba_comparison == 1, f"Symmetry check: Expected '{p_a_str}' < '{p_b_str}' for '{path_str}' (path_is_known_dir={path_is_known_dir}), got {ba_comparison}"
     else:
         pytest.fail("Test setup error: expected_winner_str must be one of p_a_str or p_b_str")
 
