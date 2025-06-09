@@ -167,6 +167,69 @@ from dirdigest.utils.tokens import approximate_token_count
 
 # OperationalMode is now imported from dirdigest.constants
 
+# Helper function for sorting log events (moved before main_cli)
+def _sort_log_events(log_events: List[LogEvent], sort_keys: List[str]) -> List[LogEvent]:
+    """Sorts log events based on a list of sort keys."""
+
+    if not log_events:
+        return []
+
+    # Default sort: status (excluded then included), then folders by path, then files by size (desc) then path
+    if sort_keys == ["status", "size"]:  # This is our special default case
+
+        def compare_default(item1: LogEvent, item2: LogEvent) -> int:
+            # 1. Status: 'excluded' < 'included' < 'error' (errors might appear last or first based on preference)
+            # Let's make 'excluded' first, then 'included', then 'error'
+            status_order = {
+                "excluded": 0,
+                "included": 1,
+                "error": 2,
+                "unknown": 3,
+            }  # unknown just in case
+            s1 = status_order.get(item1.get("status", "unknown"), 3)
+            s2 = status_order.get(item2.get("status", "unknown"), 3)
+            if s1 != s2:
+                return s1 - s2
+
+            # 2. Item Type (within same status): 'folder' < 'file'
+            type_order = {"folder": 0, "file": 1}
+            t1 = type_order.get(item1.get("item_type", "file"), 1)
+            t2 = type_order.get(item2.get("item_type", "file"), 1)
+            if t1 != t2:
+                return t1 - t2
+
+            # 3. Sorting based on item type
+            path1 = item1.get("path", "")
+            path2 = item2.get("path", "")
+
+            if item1.get("item_type") == "folder":  # Both are folders
+                return (path1 > path2) - (path1 < path2)  # Alphabetical A-Z
+            else:  # Both are files
+                size1 = item1.get("size_kb", 0.0)
+                size2 = item2.get("size_kb", 0.0)
+                if size1 != size2:
+                    return (size2 > size1) - (size2 < size1)  # Descending size
+                return (path1 > path2) - (path1 < path2)  # Alphabetical A-Z for ties
+
+        return sorted(log_events, key=functools.cmp_to_key(compare_default))
+
+    # General case: apply sort keys in order
+    mutable_log_events = list(log_events)
+
+    for key_idx in range(len(sort_keys) - 1, -1, -1):
+        sort_key = sort_keys[key_idx]
+
+        if sort_key == "status":
+            mutable_log_events.sort(
+                key=lambda x: ({"excluded": 0, "included": 1, "error": 2}.get(x.get("status", "unknown"), 3))
+            )
+        elif sort_key == "size":
+            mutable_log_events.sort(key=lambda x: x.get("size_kb", 0.0), reverse=True)
+        elif sort_key == "path":
+            mutable_log_events.sort(key=lambda x: x.get("path", ""))
+
+    return mutable_log_events
+
 def main_cli(
     ctx: click.Context,
     directory_arg: pathlib.Path,
@@ -542,90 +605,3 @@ def main_cli(
         except TypeError as e:
             log.debug(f"CLI: Error serializing data tree to JSON for debug: {escape(str(e))}")
         log.debug("CLI: --- End Generated Data Tree ---")
-
-
-if __name__ == "__main__":
-    main_cli()
-
-
-# Helper function for sorting log events (to be defined or placed appropriately)
-def _sort_log_events(log_events: List[LogEvent], sort_keys: List[str]) -> List[LogEvent]:
-    """Sorts log events based on a list of sort keys."""
-
-    if not log_events:
-        return []
-
-    # Default sort: status (excluded then included), then folders by path, then files by size (desc) then path
-    if sort_keys == ["status", "size"]:  # This is our special default case
-
-        def compare_default(item1: LogEvent, item2: LogEvent) -> int:
-            # 1. Status: 'excluded' < 'included' < 'error' (errors might appear last or first based on preference)
-            # Let's make 'excluded' first, then 'included', then 'error'
-            status_order = {
-                "excluded": 0,
-                "included": 1,
-                "error": 2,
-                "unknown": 3,
-            }  # unknown just in case
-            s1 = status_order.get(item1.get("status", "unknown"), 3)
-            s2 = status_order.get(item2.get("status", "unknown"), 3)
-            if s1 != s2:
-                return s1 - s2
-
-            # 2. Item Type (within same status): 'folder' < 'file'
-            type_order = {"folder": 0, "file": 1}
-            t1 = type_order.get(item1.get("item_type", "file"), 1)
-            t2 = type_order.get(item2.get("item_type", "file"), 1)
-            if t1 != t2:
-                return t1 - t2
-
-            # 3. Sorting based on item type
-            path1 = item1.get("path", "")
-            path2 = item2.get("path", "")
-
-            if item1.get("item_type") == "folder":  # Both are folders
-                return (path1 > path2) - (path1 < path2)  # Alphabetical A-Z
-            else:  # Both are files
-                size1 = item1.get("size_kb", 0.0)
-                size2 = item2.get("size_kb", 0.0)
-                if size1 != size2:
-                    return (size2 > size1) - (size2 < size1)  # Descending size
-                return (path1 > path2) - (path1 < path2)  # Alphabetical A-Z for ties
-
-        return sorted(log_events, key=functools.cmp_to_key(compare_default))
-
-    # General case: apply sort keys in order
-    # Create a list of tuples for sorting, where each tuple element corresponds to a sort key
-    # Python's list.sort or sorted() is stable, so we can sort multiple times
-    # For simplicity with mixed ascending/descending, we'll build a comparison key list
-
-    # Need to reverse the sort_keys list to apply them in order using multiple stable sorts
-    # from last key to first key.
-
-    # Example: sort_keys = ['status', 'size']
-    # 1. Sort by size (secondary key)
-    # 2. Sort by status (primary key)
-
-    # Let's re-implement general sorting more directly for clarity
-    # We will sort from the last key to the first key (stable sort property)
-
-    # Make a mutable copy to sort in place
-    mutable_log_events = list(log_events)
-
-    for key_idx in range(len(sort_keys) - 1, -1, -1):
-        sort_key = sort_keys[key_idx]
-
-        if sort_key == "status":
-            # Excluded < Included < Error (alphabetical also works if "error" is used)
-            # Python's sort is stable.
-            mutable_log_events.sort(
-                key=lambda x: ({"excluded": 0, "included": 1, "error": 2}.get(x.get("status", "unknown"), 3))
-            )
-        elif sort_key == "size":
-            # Descending size
-            mutable_log_events.sort(key=lambda x: x.get("size_kb", 0.0), reverse=True)
-        elif sort_key == "path":
-            # Ascending path
-            mutable_log_events.sort(key=lambda x: x.get("path", ""))
-
-    return mutable_log_events

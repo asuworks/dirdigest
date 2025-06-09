@@ -587,3 +587,106 @@ def test_empty_or_no_matches(tmp_path: pathlib.Path, fs_structure, operational_m
 
 if __name__ == "__main__":
     pytest.main(["-v", __file__])
+
+# --- Tests for "**/dirname/" specific patterns ---
+
+@pytest.mark.parametrize("fs_structure, operational_mode, includes, user_excludes, no_default, expected_included_paths, expected_log_checks", [
+    pytest.param(
+        {"project/": {"src/": {"app.py": "app"}, "utils/": {"tools.py": "tools", "helpers/": {"string_utils.py": "strings"}}, "another_dir/": {"other.txt": "o"}}},
+        OperationalMode.MODE_ONLY_INCLUDE,
+        ["**/utils/"], [], False,
+        ["project/utils/tools.py", "project/utils/helpers/string_utils.py"],
+        {
+            "project/utils": {"state": PathState.TRAVERSE_BUT_EXCLUDE_SELF.name, "msi": "**/utils/"},
+            "project/utils/tools.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/utils/"},
+            "project/utils/helpers/string_utils.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/utils/"},
+            "project/src/app.py": {"state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name},
+            "project/another_dir/other.txt": {"state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name}
+        },
+        id="STARSTAR_UTILS_ONLY_INCLUDE_Basic"
+    ),
+    pytest.param(
+        {"project/": {"utils/": {"tools.py": "t", ".hidden_util.py": "h"}, ".git/": {"config": "c"}}},
+        OperationalMode.MODE_ONLY_INCLUDE,
+        ["**/utils/"], [], False, # Default ignores active
+        ["project/utils/tools.py"],
+        {
+            "project/utils": {"state": PathState.TRAVERSE_BUT_EXCLUDE_SELF.name, "msi": "**/utils/"},
+            "project/utils/tools.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/utils/"},
+            "project/utils/.hidden_util.py": {"state": PathState.DEFAULT_EXCLUDED.name, "msi": "**/utils/", "default_rule": ".*"},
+            ".git/config": {"state": PathState.DEFAULT_EXCLUDED.name, "default_rule": ".*"}
+        },
+        id="STARSTAR_UTILS_ONLY_INCLUDE_WithDefaults"
+    ),
+    pytest.param(
+        {"project/": {"utils/": {"tools.py": "t", ".hidden_util.py": "h"}, ".git/": {"config": "c"}}},
+        OperationalMode.MODE_ONLY_INCLUDE,
+        ["**/utils/"], [], True, # No Default ignores
+        ["project/utils/tools.py", "project/utils/.hidden_util.py"],
+        {
+            "project/utils": {"state": PathState.TRAVERSE_BUT_EXCLUDE_SELF.name, "msi": "**/utils/"},
+            "project/utils/tools.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/utils/"},
+            "project/utils/.hidden_util.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/utils/"}
+        },
+        id="STARSTAR_UTILS_ONLY_INCLUDE_NoDefaults"
+    ),
+    pytest.param(
+        {"project/": {"src/": {"app.py": "a"}, "utils/": {"tools.py": "t", "helpers/": {"string_utils.py": "s"}}}},
+        OperationalMode.MODE_INCLUDE_FIRST,
+        ["**/utils/", "project/src/app.py"], ["**/helpers/"], False,
+        ["project/utils/tools.py", "project/src/app.py"],
+        {
+            "project/utils": {"state": PathState.TRAVERSE_BUT_EXCLUDE_SELF.name, "msi": "**/utils/"},
+            "project/utils/tools.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/utils/"},
+            "project/utils/helpers": {"state": PathState.USER_EXCLUDED_DIRECTLY.name, "msi": "**/utils/", "mse": "**/helpers/"},
+            "project/utils/helpers/string_utils.py": {"state": PathState.USER_EXCLUDED_DIRECTLY.name, "msi": "**/utils/", "mse": "**/helpers/"},
+            "project/src/app.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "project/src/app.py"}
+        },
+        id="STARSTAR_UTILS_INCLUDE_FIRST_WithExcludes"
+    ),
+    pytest.param(
+        {"root/": {"common_utils/": {"cutil.py": "c"}, "feature_utils/": {"futil.py": "f"}, "app/": {"main.py": "m"}}},
+        OperationalMode.MODE_ONLY_INCLUDE,
+        ["**/common_utils/", "**/feature_utils/"], [], False,
+        ["root/common_utils/cutil.py", "root/feature_utils/futil.py"],
+        {
+            "root/common_utils/cutil.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/common_utils/"},
+            "root/feature_utils/futil.py": {"state": PathState.FINAL_INCLUDED.name, "msi": "**/feature_utils/"},
+            "root/app/main.py": {"state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name}
+        },
+        id="STARSTAR_UTILS_ONLY_INCLUDE_MultipleStarStar"
+    ),
+    pytest.param(
+        {"project/": {"src/": {"app.py": "a"}, "utils/": {"tools.py": "t"}}},
+        OperationalMode.MODE_ONLY_INCLUDE,
+        ["**/nonexistent_utils/"], [], False,
+        [], # No files included
+        {
+            "project/src/app.py": {"state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name},
+            "project/utils/tools.py": {"state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name},
+            "project/utils": {"state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name} # Also the dir
+        },
+        id="STARSTAR_UTILS_ONLY_INCLUDE_NoMatchingDir"
+    ),
+])
+def test_starstar_dirname_patterns(tmp_path: pathlib.Path, fs_structure, operational_mode, includes, user_excludes, no_default, expected_included_paths, expected_log_checks):
+    create_test_fs(tmp_path, fs_structure)
+    # For these specific tests, effective_app_exclude_patterns can mirror user_excludes,
+    # as we are primarily testing the include/exclude logic based on user patterns and default flag.
+    included_files, log_events = run_core_processing_test(
+        base_dir=tmp_path,
+        operational_mode=operational_mode,
+        include_patterns=includes,
+        user_exclude_patterns=user_excludes,
+        effective_app_exclude_patterns=user_excludes,
+        no_default_ignore=no_default
+    )
+
+    expected_paths_resolved = sorted([pathlib.Path(p) for p in expected_included_paths])
+    assert sorted(included_files) == expected_paths_resolved, f"Included files mismatch. Expected: {expected_paths_resolved}, Got: {sorted(included_files)}"
+
+    for path_str, checks in expected_log_checks.items():
+        event = find_log_event(log_events, path_str)
+        assert event is not None, f"No log event found for path: '{path_str}'.\nAvailable log paths: {[e.get('path') for e in log_events]}"
+        for key, val in checks.items():
+            assert event.get(key) == val, f"Log event check failed for '{path_str}': {key}='{event.get(key)}', expected '{val}'"
