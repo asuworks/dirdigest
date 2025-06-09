@@ -4,143 +4,167 @@ import os
 import re
 from pathlib import Path
 from unittest import mock
+from rich.markup import escape # For escaping patterns in log messages
+
 
 import pytest
 from click.testing import CliRunner
 
 from dirdigest import cli as dirdigest_cli
-from dirdigest.constants import TOOL_VERSION
-from dirdigest.core import LogEvent  # For type hinting
-from dirdigest.formatter import format_log_event_for_cli  # Function to test
+from dirdigest.constants import TOOL_VERSION, LogEvent, PathState # Import LogEvent TypedDict and PathState
+from dirdigest.formatter import format_log_event_for_cli, RICH_TAG_RE  # Function to test and regex
 
 # --- Helper for checking log lines ---
-
-
-def check_log_line(
+def check_log_line_new(
     line: str,
-    status: str,
-    item_type: str,
-    path: str,
-    size_str: str,
-    reason: str | None = None,
+    expected_status_summary: str, # "included", "excluded", "error", "unknown"
+    expected_item_type: str,
+    expected_path: str,
+    expected_size_kb_str: Optional[str] = None, # e.g. "2.35KB" or None if not applicable
+    expected_state_name: Optional[str] = None,
+    expected_reason: Optional[str] = None,
+    expected_msi: Optional[str] = None,
+    expected_mse: Optional[str] = None,
+    expected_default_rule: Optional[str] = None,
 ):
-    """Checks if a formatted log line contains all the expected components."""
-    assert f"[log.{status}]{status.capitalize()}" in line
-    # The formatter may add padding, so a simple 'in' check is robust.
-    assert item_type in line
-    assert f"({size_str})" in line
-    assert f"[log.path]{path}[/log.path]" in line
-    if reason:
-        assert f"([log.reason]{reason}[/log.reason])" in line
-    else:
-        # If no reason, the reason tag should not be present at all.
-        assert "[log.reason]" not in line
+    """Checks if a formatted log line contains all the expected components based on the new format."""
+
+    # Check for overall status indicator (color tag and symbol)
+    if expected_status_summary == "included":
+        assert "[log.included]" in line and "✔" in line
+        assert "Included" in line
+    elif expected_status_summary == "excluded":
+        assert "[log.excluded]" in line and "✘" in line
+        assert "Excluded" in line
+    elif expected_status_summary == "error":
+        assert "[log.warning]" in line and "!" in line # Assuming error maps to warning style
+        assert "Error" in line
+    elif expected_status_summary == "unknown": # Default from formatter if status missing
+        assert "[log.warning]" in line and "!" in line
+        assert "Unknown" in line
 
 
-# --- Unit tests for format_log_event_for_cli ---
+    assert expected_item_type in line
+    assert f"[log.path]{expected_path}[/log.path]" in line
+
+    if expected_size_kb_str:
+        assert f"({expected_size_kb_str})" in line
+    elif expected_size_kb_str == "": # Explicitly checking for empty size string (e.g. for folders with 0 size in some contexts)
+        stripped_line_for_size_check = RICH_TAG_RE.sub("", line.split(":")[0]) # Check before path
+        assert "KB" not in stripped_line_for_size_check
+
+    # Check details block
+    if any([expected_state_name, expected_reason, expected_msi, expected_mse, expected_default_rule]):
+        assert "[log.details]" in line
+        if expected_state_name:
+            assert f"State: {expected_state_name}" in line
+        if expected_reason:
+            assert f"Reason: {expected_reason}" in line
+        if expected_msi:
+            assert f"MSI: '{escape(expected_msi)}'" in line
+        if expected_mse:
+            assert f"MSE: '{escape(expected_mse)}'" in line
+        if expected_default_rule:
+            assert f"DefaultRule: '{escape(expected_default_rule)}'" in line
 
 
-def test_format_log_event_included_file():
+# --- Unit tests for format_log_event_for_cli (Updated) ---
+
+def test_format_log_event_included_file_new():
     log_event: LogEvent = {
-        "path": "src/main.py",
-        "item_type": "file",
-        "status": "included",
-        "size_kb": 2.345,
-        "reason": None,
+        "path": "src/main.py", "item_type": "file", "status": "included",
+        "state": PathState.FINAL_INCLUDED.name, "reason": "Matches MSI 'src/*.py'",
+        "msi": "src/*.py", "size_kb": 2.345
     }
     result = format_log_event_for_cli(log_event)
-    check_log_line(
-        result,
-        status="included",
-        item_type="file",
-        path="src/main.py",
-        size_str="2.35KB",
+    check_log_line_new(
+        result, expected_status_summary="included", expected_item_type="file", expected_path="src/main.py",
+        expected_size_kb_str="2.35KB", expected_state_name=PathState.FINAL_INCLUDED.name,
+        expected_reason="Matches MSI 'src/*.py'", expected_msi="src/*.py"
     )
 
-
-def test_format_log_event_excluded_folder_with_reason():
+def test_format_log_event_excluded_folder_new():
     log_event: LogEvent = {
-        "path": "node_modules/",
-        "item_type": "folder",
-        "status": "excluded",
-        "size_kb": 10240.0,
-        "reason": "Matches default ignore pattern",
+        "path": "node_modules/", "item_type": "folder", "status": "excluded",
+        "state": PathState.DEFAULT_EXCLUDED.name, "reason": "Matches default rule: node_modules/",
+        "default_rule": "node_modules/", "size_kb": 10240.0
     }
     result = format_log_event_for_cli(log_event)
-    check_log_line(
-        result,
-        status="excluded",
-        item_type="folder",
-        path="node_modules/",
-        size_str="10240.00KB",
-        reason="Matches default ignore pattern",
+    check_log_line_new(
+        result, expected_status_summary="excluded", expected_item_type="folder", expected_path="node_modules/",
+        expected_size_kb_str="10240.00KB", expected_state_name=PathState.DEFAULT_EXCLUDED.name,
+        expected_reason="Matches default rule: node_modules/", expected_default_rule="node_modules/"
     )
 
-
-def test_format_log_event_error_status_with_reason():
+def test_format_log_event_error_status_new():
     log_event: LogEvent = {
-        "path": "bad_dir/",
-        "item_type": "folder",
-        "status": "error",
-        "size_kb": 0.0,
-        "reason": "Error calculating size: Permission denied",
+        "path": "bad_dir/", "item_type": "folder", "status": "error", # 'status' here is summary
+        "state": PathState.FINAL_EXCLUDED.name, # Example, could be specific error state
+        "reason": "Read error: Permission denied", "size_kb": 0.0
     }
     result = format_log_event_for_cli(log_event)
-    check_log_line(
-        result,
-        status="error",
-        item_type="folder",
-        path="bad_dir/",
-        size_str="0.00KB",
-        reason="Error calculating size: Permission denied",
+    check_log_line_new(
+        result, expected_status_summary="error", expected_item_type="folder", expected_path="bad_dir/",
+        expected_size_kb_str="", # Size 0 for error/folder might not show "(0.00KB)"
+        expected_state_name=PathState.FINAL_EXCLUDED.name,
+        expected_reason="Read error: Permission denied"
+    )
+    # Check if size part is truly absent or shows (0.00KB) based on formatter's logic for errors
+    if log_event.get("size_kb", 0.0) == 0.0 and log_event.get("status") == "error":
+         assert "KB" not in result.split(":")[0] # Check before path part
+
+def test_format_log_event_excluded_no_specific_pattern_details():
+    log_event: LogEvent = {
+        "path": "temp.tmp", "item_type": "file", "status": "excluded",
+        "state": PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name,
+        "reason": "No matching include pattern", "size_kb": 1.0
+    }
+    result = format_log_event_for_cli(log_event)
+    check_log_line_new(
+        result, status="excluded", item_type="file", path="temp.tmp", size_str="1.00KB",
+        expected_state_name=PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name,
+        expected_reason="No matching include pattern"
     )
 
-
-def test_format_log_event_missing_reason_for_excluded():
+def test_format_log_event_size_none_or_invalid():
     log_event: LogEvent = {
-        "path": "temp.tmp",
-        "item_type": "file",
-        "status": "excluded",
-        "size_kb": 1.0,
-        "reason": None,  # Excluded but reason is None
+        "path": "data.bin", "item_type": "file", "status": "included",
+        "state": PathState.FINAL_INCLUDED.name, "size_kb": None, # Test None
+        "reason": "Included by default"
     }
-    result = format_log_event_for_cli(log_event)
-    # Reason part should be omitted if reason is None, even if excluded
-    check_log_line(result, status="excluded", item_type="file", path="temp.tmp", size_str="1.00KB")
-
-
-def test_format_log_event_size_not_numeric():
-    log_event: LogEvent = {
-        "path": "data.bin",
-        "item_type": "file",
-        "status": "included",
-        "size_kb": "very large",  # Invalid size type
-        "reason": None,
-    }
-    result = format_log_event_for_cli(log_event)
-    check_log_line(result, status="included", item_type="file", path="data.bin", size_str="N/AKB")
-
-
-def test_format_log_event_minimal_data():
-    log_event: LogEvent = {  # type: ignore
-        "path": "minimal.txt",
-        # item_type, status, size_kb, reason are missing
-    }
-    # .get() in formatter should provide defaults
-    # status: "unknown", item_type: "item", size_kb: 0.0
-    result = format_log_event_for_cli(log_event)
-    check_log_line(
-        result,
-        status="unknown",
-        item_type="item",
-        path="minimal.txt",
-        size_str="0.00KB",
+    result_none = format_log_event_for_cli(log_event)
+    check_log_line_new(
+        result_none, status="included", item_type="file", path="data.bin", size_str="N/A",
+        expected_state_name=PathState.FINAL_INCLUDED.name, reason="Included by default"
     )
+    assert "([grey39]N/A[/grey39])" in result_none # Specific check for N/A formatting
+
+    log_event_invalid: LogEvent = { # type: ignore
+        "path": "data2.bin", "item_type": "file", "status": "excluded",
+        "state": PathState.FINAL_EXCLUDED.name, "size_kb": "very large", # Test invalid string
+        "reason": "Size could not be determined"
+    }
+    result_invalid = format_log_event_for_cli(log_event_invalid)
+    check_log_line_new(
+        result_invalid, status="excluded", item_type="file", path="data2.bin", size_str="N/A",
+        expected_state_name=PathState.FINAL_EXCLUDED.name, reason="Size could not be determined"
+    )
+    assert "([grey39]N/A[/grey39])" in result_invalid
 
 
-# --- Existing tests for JSON/Markdown output format ---
+def test_format_log_event_minimal_data_new():
+    log_event: LogEvent = {"path": "minimal.txt"} # All other fields missing
+    result = format_log_event_for_cli(log_event)
+    check_log_line_new(
+        result, status="unknown", item_type="item", path="minimal.txt",
+        size_str="", # Expect no size string for unknown status and 0.0 size
+        expected_state_name=PathState.PENDING_EVALUATION.name # Default state in formatter if missing
+    )
+    assert "KB" not in result.split(":")[0]
 
 
+# --- Existing tests for JSON/Markdown output format (remain unchanged) ---
+# ... (rest of the file from the provided content) ...
 def get_included_files_from_json(json_output_str: str) -> set[str]:
     try:
         data = json.loads(json_output_str)
@@ -193,7 +217,6 @@ def test_markdown_output_basic_structure_simple_project(runner: CliRunner, temp_
     assert "\n## Directory Structure\n" in markdown_output
     assert "\n```text\n" in markdown_output
 
-    # After sorting fix (folders first)
     assert structure_text_contains(markdown_output, "├── sub_dir1/")
     assert structure_text_contains(markdown_output, "│   └── script.py")
     assert structure_text_contains(markdown_output, "├── file1.txt")
@@ -226,9 +249,6 @@ def test_markdown_directory_structure_visualization_complex(runner: CliRunner, t
     assert match, "Directory structure block not found"
     structure_text = match.group(1).replace(os.sep, "/")
 
-    # Based on corrected sorting: Folders first (alpha), then files (alpha).
-    # Folders: data, docs, src, tests
-    # Files: README.md, config.yaml
     assert ".\n" in structure_text
     assert "├── data/\n" in structure_text
     assert "│   └── small_data.csv" in structure_text
@@ -246,7 +266,6 @@ def test_markdown_directory_structure_visualization_complex(runner: CliRunner, t
     assert "├── README.md\n" in structure_text
     assert "└── config.yaml" in structure_text.strip()
 
-    # Verify default ignored are not present
     assert ".git/" not in structure_text
     assert "__pycache__/" not in structure_text
     assert "node_modules/" not in structure_text
@@ -269,32 +288,14 @@ def test_markdown_code_block_language_hints(runner: CliRunner, temp_test_dir: Pa
         os.chdir(original_cwd)
 
     assert result.exit_code == 0
-
     markdown_output = markdown_output.replace(os.sep, "/")
 
-    # The `echo` command in the setup script adds a newline to the file content.
-    # The regex needs to account for this. Using `\s*` to be flexible.
-    assert re.search(
-        r"### `./script\.py`\s*```py\s*print\(\"python\"\)\s*```",
-        markdown_output,
-    )
-    assert re.search(
-        r"### `./styles\.css`\s*```css\s*body \{ color: blue; \}\s*```",
-        markdown_output,
-    )
-    assert re.search(
-        r"### `./data\.json`\s*```json\s*\{\"key\": \"value\"\}\s*```",
-        markdown_output,
-    )
+    assert re.search(r"### `./script\.py`\s*```py\s*print\(\"python\"\)\s*```", markdown_output,)
+    assert re.search(r"### `./styles\.css`\s*```css\s*body \{ color: blue; \}\s*```", markdown_output,)
+    assert re.search(r"### `./data\.json`\s*```json\s*\{\"key\": \"value\"\}\s*```", markdown_output,)
     assert re.search(r"### `./README\.md`\s*```md\s*# Markdown\s*```", markdown_output)
-    assert re.search(
-        r"### `./unknown\.xyz`\s*```xyz\s*some data\s*```",
-        markdown_output,
-    )
-    assert re.search(
-        r"### `./no_ext_file`\s*```\s*text with no extension\s*```",
-        markdown_output,
-    )
+    assert re.search(r"### `./unknown\.xyz`\s*```xyz\s*some data\s*```", markdown_output,)
+    assert re.search(r"### `./no_ext_file`\s*```\s*text with no extension\s*```", markdown_output,)
 
 
 @pytest.mark.parametrize("temp_test_dir", ["content_processing_dir"], indirect=True)
@@ -310,29 +311,18 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
         if file_to_make_unreadable.exists():
             original_permissions = file_to_make_unreadable.stat().st_mode
             os.chmod(file_to_make_unreadable, 0o000)
-
-            # Verify the permission change worked
             try:
                 file_to_make_unreadable.read_text()
                 permission_change_successful = False
             except PermissionError:
                 permission_change_successful = True
-
-        # Skip if we couldn't make the file unreadable
         if not permission_change_successful:
             pytest.skip(f"Could not make {file_to_make_unreadable} unreadable on this platform")
 
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [
-                    ".",
-                    "--format",
-                    "markdown",
-                    "--ignore-errors",
-                    "--no-default-ignore",
-                    "--no-clipboard",
-                ],
+                [".", "--format", "markdown", "--ignore-errors", "--no-default-ignore", "--no-clipboard",],
             )
             if mock_rich_print.call_args_list:
                 markdown_output = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -344,11 +334,7 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
     assert result.exit_code == 0
     markdown_output = markdown_output.replace(os.sep, "/")
     assert f"\n### `./{file_to_make_unreadable.name}`\n" in markdown_output
-    assert re.search(
-        r"```(text)?\s*Error reading file:.*?Permission denied.*?\s*```",
-        markdown_output,
-        re.DOTALL,
-    )
+    assert re.search(r"```(text)?\s*Error reading file:.*?Permission denied.*?\s*```", markdown_output, re.DOTALL,)
 
 
 @pytest.mark.parametrize("temp_test_dir", ["simple_project"], indirect=True)
@@ -381,7 +367,6 @@ def test_json_output_metadata_and_root_structure(runner: CliRunner, temp_test_di
     assert isinstance(metadata["included_files_count"], int)
     assert isinstance(metadata["excluded_items_count"], int)
     assert isinstance(metadata["total_content_size_kb"], (float, int))
-    # In simple_project, there are no default ignored files, so excluded count should be 0.
     assert metadata["included_files_count"] == 3
     assert metadata["excluded_items_count"] == 0
 
@@ -392,6 +377,10 @@ def test_json_output_metadata_and_root_structure(runner: CliRunner, temp_test_di
     assert "children" in root_node
     assert isinstance(root_node["children"], list)
 
-    # Check that children are sorted (folders first, then files, all alphabetically)
     child_paths = [c["relative_path"].replace(os.sep, "/") for c in root_node["children"]]
     assert child_paths == ["sub_dir1", "file1.txt", "file2.md"]
+
+# Note: Actual CLI invocation tests for sorting are harder to assert precisely due to Rich handling.
+# The unit tests for format_log_event_for_cli and _sort_log_events (if added) cover the logic.
+# The main CLI tests here primarily ensure the options are accepted and don't crash.
+# More detailed assertions on sorted log output would require capturing Rich output or direct inspection.
