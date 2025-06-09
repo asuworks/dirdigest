@@ -57,10 +57,28 @@ def process_directory_recursive(
     logger.debug(f"Core: Filter mode: {filter_mode}") # Added logger for filter_mode
 
     def _traverse() -> Generator[ProcessedItem, None, None]:
+        # Helper functions for pattern type determination
+        def _is_dir_like_pattern(p_str: Optional[str]) -> bool:
+            if p_str is None: return False
+            # Considers patterns ending with '/', containing '/', or being '**' as directory-like
+            return p_str.endswith("/") or "/" in p_str or p_str == "**"
+
+        def _is_name_glob_pattern(p_str: Optional[str]) -> bool:
+            if p_str is None: return False
+            # Considers patterns without '/' and containing wildcards as name globs
+            return "/" not in p_str and ("*" in p_str or "?" in p_str or "[" in p_str)
+
         for root, dirs_orig, files_orig in os.walk(str(base_dir_path), topdown=True, followlinks=follow_symlinks):
             current_root_path = pathlib.Path(root)
             relative_root_path = current_root_path.relative_to(base_dir_path)
-            current_depth = len(relative_root_path.parts) if relative_root_path != pathlib.Path(".") else 0
+            current_depth_of_root = len(relative_root_path.parts) if relative_root_path != pathlib.Path(".") else 0
+
+            if max_depth is not None:
+                if current_depth_of_root > max_depth:
+                    dirs_orig[:] = []
+                    continue
+                if current_depth_of_root == max_depth:
+                    dirs_orig[:] = []
 
             # --- Process Files ---
             for file_name in files_orig:
@@ -68,96 +86,159 @@ def process_directory_recursive(
                 relative_file_path = relative_root_path / file_name
                 relative_file_path_str = str(relative_file_path)
 
-                is_included: bool = False # Default to not included
+                is_included: bool = False
                 reason: str = ""
                 current_file_size_kb = 0.0
 
                 try:
-                    # Calculate size for all files, even if potentially excluded early (for logging)
                     if file_path_obj.is_symlink() and not follow_symlinks:
                         current_file_size_kb = 0.0
                     else:
                         current_file_size_kb = round(file_path_obj.stat().st_size / 1024, 3)
                 except OSError as e:
                     logger.warning(f"Could not stat file {relative_file_path_str} for size: {e}")
-                    # If stat fails, treat as size 0 and potentially exclude later due to read error
                     current_file_size_kb = 0.0
 
-
-                # 1. Calculate all matching conditions first
-                # For user patterns, we just need to know if any match. Specificity is handled by precedence.
-                matches_user_include = any(matches_pattern(relative_file_path_str, p) for p in include_patterns)
-                matches_user_exclude = any(matches_pattern(relative_file_path_str, p) for p in exclude_patterns)
-
-                is_symlink_and_not_followed = not follow_symlinks and file_path_obj.is_symlink()
-
-                is_hidden = is_path_hidden(relative_file_path) # boolean
-                is_hidden_and_not_default_ignored = is_hidden and not no_default_ignore
-
-                # For default excludes, we also just need to know if any match.
-                matches_default_exclude_patterns = not no_default_ignore and any(matches_pattern(relative_file_path_str, p) for p in DEFAULT_IGNORE_PATTERNS)
-
-                # Combine hidden check with default exclude patterns for the purpose of matches_default_exclude
-                # A hidden file is a form of default ignore, unless no_default_ignore is True.
-                matches_default_exclude = (is_hidden and not no_default_ignore) or matches_default_exclude_patterns
-
-                # 2. Apply new precedence rules to determine initial is_included and reason
-                if matches_user_include:
-                    is_included = True
-                    reason = f"Matches user-specified include pattern: {relative_file_path_str}"
-                elif is_symlink_and_not_followed:
-                    is_included = False # Stays false
+                if not follow_symlinks and file_path_obj.is_symlink():
+                    is_included = False
                     reason = f"Is a symlink (symlink following disabled): {relative_file_path_str}"
-                elif matches_user_exclude:
-                    is_included = False # Stays false
-                    reason = f"Matches user-specified exclude pattern: {relative_file_path_str}"
-                # Combined hidden and default exclude check:
-                elif matches_default_exclude: # This covers is_hidden_and_not_default_ignored and matches_default_exclude_patterns
-                    is_included = False # Stays false
-                    if is_hidden and not no_default_ignore: # Prioritize "hidden" as reason if it's the cause
-                         reason = f"Is a hidden file: {relative_file_path_str}"
-                    else: # Otherwise, it's a default pattern match
-                         reason = f"Matches default ignore pattern: {relative_file_path_str}"
-                elif include_patterns: # User specified include patterns, but this file didn't match any
-                    is_included = False # Stays false
-                    reason = f"Does not match any user-specified include pattern: {relative_file_path_str}"
-                else: # Default include (no include_patterns given, and not excluded by other rules)
-                    is_included = True
-                    reason = f"Included by default: {relative_file_path_str}"
+                else:
+                    matching_user_includes_file = [p for p in include_patterns if matches_pattern(relative_file_path_str, p)]
+                    matching_user_excludes_file = [p for p in exclude_patterns if matches_pattern(relative_file_path_str, p)]
+                    msi_pattern_str_file = get_most_specific_pattern(relative_file_path_str, matching_user_includes_file)
+                    mse_pattern_str_file = get_most_specific_pattern(relative_file_path_str, matching_user_excludes_file)
 
-                # 3. Handle the outcome: size checks and file reading (if included so far)
+                    user_decision_is_include: Optional[bool] = None
+                    user_reason: str = ""
+
+                    if msi_pattern_str_file is not None and msi_pattern_str_file == mse_pattern_str_file:
+                        raise ValueError(f"Pattern '{msi_pattern_str_file}' is specified in both include and exclude rules for path '{relative_file_path_str}'.")
+                    elif msi_pattern_str_file and mse_pattern_str_file:
+                        msi_is_dir = _is_dir_like_pattern(msi_pattern_str_file)
+                        msi_is_name_glob_type = _is_name_glob_pattern(msi_pattern_str_file)
+                        mse_is_dir = _is_dir_like_pattern(mse_pattern_str_file)
+                        mse_is_name_glob_type = _is_name_glob_pattern(mse_pattern_str_file)
+
+                        if msi_is_dir and mse_is_name_glob_type:
+                            user_decision_is_include = False
+                            user_reason = f"Name glob exclude '{mse_pattern_str_file}' filters directory include '{msi_pattern_str_file}' for path '{relative_file_path_str}'"
+                        elif mse_is_dir and msi_is_name_glob_type:
+                            user_decision_is_include = False
+                            user_reason = f"Directory exclude '{mse_pattern_str_file}' overrides name glob include '{msi_pattern_str_file}' for path '{relative_file_path_str}'"
+                        else:
+                            score_msi = _calculate_specificity_score(msi_pattern_str_file)
+                            score_mse = _calculate_specificity_score(mse_pattern_str_file)
+                            if score_msi > score_mse:
+                                user_decision_is_include = True
+                                user_reason = f"Include pattern '{msi_pattern_str_file}' (score {score_msi}) is more specific than exclude pattern '{mse_pattern_str_file}' (score {score_mse}) for path '{relative_file_path_str}'"
+                            elif score_mse > score_msi:
+                                user_decision_is_include = False
+                                user_reason = f"Exclude pattern '{mse_pattern_str_file}' (score {score_mse}) is more specific than include pattern '{msi_pattern_str_file}' (score {score_msi}) for path '{relative_file_path_str}'"
+                            else:
+                                raise ValueError(f"Include pattern '{msi_pattern_str_file}' and exclude pattern '{mse_pattern_str_file}' have equal specificity for path '{relative_file_path_str}'. Please refine your rules.")
+                    elif msi_pattern_str_file:
+                        user_decision_is_include = True
+                        user_reason = f"Matches user-specified include pattern: {msi_pattern_str_file} for path '{relative_file_path_str}'"
+                    elif mse_pattern_str_file:
+                        user_decision_is_include = False
+                        user_reason = f"Matches user-specified exclude pattern: {mse_pattern_str_file} for path '{relative_file_path_str}'"
+                    else:
+                        user_decision_is_include = None
+                        user_reason = f"No user patterns matched for path '{relative_file_path_str}'"
+
+                    if filter_mode == "default":
+                        if user_decision_is_include is not None:
+                            is_included = user_decision_is_include
+                            reason = user_reason
+                        else:
+                            is_hidden = is_path_hidden(relative_file_path)
+                            default_ignore_match_str = next((p_def for p_def in DEFAULT_IGNORE_PATTERNS if matches_pattern(relative_file_path_str, p_def)), None) if not no_default_ignore else None
+
+                            if not no_default_ignore and is_hidden:
+                                is_included = False
+                                reason = f"Is a hidden file: {relative_file_path_str}"
+                            elif default_ignore_match_str:
+                                is_included = False
+                                reason = f"Matches default ignore pattern: {default_ignore_match_str} for path '{relative_file_path_str}'"
+                            else:
+                                if include_patterns:
+                                    is_included = False
+                                    reason = f"Does not match any user-specified include pattern and not default excluded (mode: default): {relative_file_path_str}"
+                                else:
+                                    is_included = True
+                                    reason = f"Included by default (mode: default): {relative_file_path_str}"
+
+                    elif filter_mode == "include_first":
+                        if user_decision_is_include is True:
+                            is_included = True
+                            reason = user_reason
+                        elif user_decision_is_include is False:
+                            is_included = False
+                            reason = user_reason
+                        else:
+                            is_included = False
+                            if include_patterns and not msi_pattern_str_file:
+                                reason = f"Does not match any user-specified include pattern (mode: include_first): {relative_file_path_str}"
+                            elif not include_patterns:
+                                reason = f"No include patterns provided (mode: include_first implies exclusion unless item matches a user include rule): {relative_file_path_str}"
+                            else:
+                                reason = f"Controlling include pattern did not win precedence (mode: include_first): {relative_file_path_str}"
+
+
+                    elif filter_mode == "exclude_first":
+                        if user_decision_is_include is False:
+                            is_included = False
+                            reason = user_reason
+                        else:
+                            is_hidden = is_path_hidden(relative_file_path)
+                            default_ignore_match_str = next((p_def for p_def in DEFAULT_IGNORE_PATTERNS if matches_pattern(relative_file_path_str, p_def)), None) if not no_default_ignore else None
+
+                            if not no_default_ignore and is_hidden:
+                                is_included = False
+                                reason = f"Is a hidden file (mode: exclude_first): {relative_file_path_str}"
+                                if user_decision_is_include is True:
+                                    reason = f"Is a hidden file (overriding user include '{msi_pattern_str_file}' due to mode: exclude_first): {relative_file_path_str}"
+                            elif default_ignore_match_str:
+                                is_included = False
+                                reason = f"Matches default ignore pattern: {default_ignore_match_str} (mode: exclude_first) for path '{relative_file_path_str}'"
+                                if user_decision_is_include is True:
+                                     reason = f"Matches default ignore pattern: {default_ignore_match_str} (overriding user include '{msi_pattern_str_file}' due to mode: exclude_first) for path '{relative_file_path_str}'"
+                            else:
+                                if user_decision_is_include is True:
+                                    is_included = True
+                                    reason = user_reason
+                                elif include_patterns:
+                                    is_included = False
+                                    reason = f"Does not match any user-specified include pattern and not default excluded (mode: exclude_first): {relative_file_path_str}"
+                                else:
+                                    is_included = True
+                                    reason = f"Included by default (mode: exclude_first): {relative_file_path_str}"
+
                 file_attributes: ProcessedItemPayload = {}
                 if is_included:
                     file_attributes["size_kb"] = current_file_size_kb
                     if current_file_size_kb * 1024 > max_size_bytes:
-                        is_included = False # Now excluded
+                        is_included = False
                         reason = f"Exceeds max size ({current_file_size_kb:.1f}KB > {max_size_kb}KB): {relative_file_path_str}"
                     else:
                         try:
-                            if file_path_obj.is_symlink() and not file_path_obj.exists(): # Check for broken symlink
+                            if file_path_obj.is_symlink() and not file_path_obj.exists():
                                 raise OSError(f"Broken symbolic link: {relative_file_path_str}")
-                            # Attempt to read content only if not a broken symlink or if it's a regular file
                             with file_path_obj.open("r", encoding="utf-8", errors="strict") as f:
                                 file_attributes["content"] = f.read()
                             file_attributes["read_error"] = None
-                            # If successfully included and read, the initial reason (e.g. "Matches user include") is kept.
-                            # Or, if it was "Included by default", that's also fine.
                         except (OSError, UnicodeDecodeError) as e:
                             error_reason_str = f"{type(e).__name__}: {e}"
                             if not ignore_read_errors:
-                                is_included = False # Now excluded
+                                is_included = False
                                 reason = f"Read error ({error_reason_str}): {relative_file_path_str}"
                             else:
-                                # Included, but with read error noted
                                 file_attributes["content"] = None
                                 file_attributes["read_error"] = error_reason_str
                                 reason += f" (read error ignored: {error_reason_str})"
 
-                # Log and yield based on final status
                 if is_included:
                     stats["included_files_count"] += 1
-                    # For included files, the reason might be "Matches user-specified include pattern", "Included by default",
-                    # or "Included by default (read error ignored...)"
                     log_events.append({
                         "path": relative_file_path_str,
                         "item_type": "file",
@@ -168,7 +249,6 @@ def process_directory_recursive(
                     yield (relative_file_path, "file", file_attributes)
                 else:
                     stats["excluded_items_count"] += 1
-                    # Reason will be set by one of the exclusion conditions or subsequent size/read error.
                     log_events.append({
                         "path": relative_file_path_str,
                         "item_type": "file",
@@ -185,157 +265,139 @@ def process_directory_recursive(
                 relative_dir_path_str = str(relative_dir_path)
                 dir_size_kb = _get_dir_size(dir_path_obj, follow_symlinks)
 
-                user_decision_is_include_dir: Optional[bool] = None
-                reason_dir_activity: str = ""
-                msi_pattern_str_dir: Optional[str] = None
-                mse_pattern_str_dir: Optional[str] = None
-                final_is_included_for_traversal: bool = False
-                final_reason_dir_activity: str = ""
-                initial_check_excluded_dir = False
+                should_traverse_dir: bool = False
+                log_status_for_dir: str = "excluded"
+                reason_for_dir: str = ""
 
-                if max_depth is not None and current_depth >= max_depth:
-                    final_is_included_for_traversal = False
-                    final_reason_dir_activity = f"Exceeds max depth: {relative_dir_path_str}"
-                    initial_check_excluded_dir = True
+                if max_depth is not None and current_depth_of_root >= max_depth:
+                    should_traverse_dir = False
+                    log_status_for_dir = "excluded"
+                    reason_for_dir = f"Parent directory at max depth ({current_depth_of_root}), not processing or traversing child '{relative_dir_path_str}'"
                 elif not follow_symlinks and dir_path_obj.is_symlink():
-                    final_is_included_for_traversal = False
-                    final_reason_dir_activity = f"Is a symlink (symlink following disabled): {relative_dir_path_str}"
-                    initial_check_excluded_dir = True
-
-                if not initial_check_excluded_dir:
+                    should_traverse_dir = False
+                    log_status_for_dir = "excluded"
+                    reason_for_dir = f"Is a symlink (symlink following disabled): {relative_dir_path_str}"
+                else:
                     matching_user_includes_dir = [p for p in include_patterns if matches_pattern(relative_dir_path_str, p)]
                     matching_user_excludes_dir = [p for p in exclude_patterns if matches_pattern(relative_dir_path_str, p)]
                     msi_pattern_str_dir = get_most_specific_pattern(relative_dir_path_str, matching_user_includes_dir)
                     mse_pattern_str_dir = get_most_specific_pattern(relative_dir_path_str, matching_user_excludes_dir)
 
+                    user_decision_is_include_dir: Optional[bool] = None
+                    user_reason_dir: str = ""
+
                     if msi_pattern_str_dir is not None and msi_pattern_str_dir == mse_pattern_str_dir:
                         raise ValueError(f"Pattern '{msi_pattern_str_dir}' is specified in both include and exclude rules for directory '{relative_dir_path_str}'.")
+                    elif msi_pattern_str_dir and mse_pattern_str_dir:
+                        score_msi_dir = _calculate_specificity_score(msi_pattern_str_dir)
+                        score_mse_dir = _calculate_specificity_score(mse_pattern_str_dir)
 
-                    if msi_pattern_str_dir and mse_pattern_str_dir:
-                        score_msi = _calculate_specificity_score(msi_pattern_str_dir)
-                        score_mse = _calculate_specificity_score(mse_pattern_str_dir)
-                        if score_msi > score_mse:
+                        if score_msi_dir > score_mse_dir:
                             user_decision_is_include_dir = True
-                            reason_dir_activity = f"Include pattern '{msi_pattern_str_dir}' (score {score_msi}) is more specific than exclude pattern '{mse_pattern_str_dir}' (score {score_mse})"
-                        elif score_mse > score_msi:
+                            user_reason_dir = f"Include pattern '{msi_pattern_str_dir}' (score {score_msi_dir}) is more specific than exclude pattern '{mse_pattern_str_dir}' (score {score_mse_dir}) for dir '{relative_dir_path_str}'"
+                        elif score_mse_dir > score_msi_dir:
                             user_decision_is_include_dir = False
-                            reason_dir_activity = f"Exclude pattern '{mse_pattern_str_dir}' (score {score_mse}) is more specific than include pattern '{msi_pattern_str_dir}' (score {score_msi})"
+                            user_reason_dir = f"Exclude pattern '{mse_pattern_str_dir}' (score {score_mse_dir}) is more specific than include pattern '{msi_pattern_str_dir}' (score {score_msi_dir}) for dir '{relative_dir_path_str}'"
                         else:
-                            raise ValueError(f"Include pattern '{msi_pattern_str_dir}' and exclude pattern '{mse_pattern_str_dir}' have equal specificity for directory '{relative_dir_path_str}'. Please refine your rules.")
+                            raise ValueError(f"Include pattern '{msi_pattern_str_dir}' and exclude pattern '{mse_pattern_str_dir}' have equal specificity for dir '{relative_dir_path_str}'. Please refine your rules.")
                     elif msi_pattern_str_dir:
-                        user_decision_is_include_dir = True; reason_dir_activity = f"Matches user-specified include pattern: {msi_pattern_str_dir}"
+                        user_decision_is_include_dir = True
+                        user_reason_dir = f"Matches user-specified include pattern: {msi_pattern_str_dir} for dir '{relative_dir_path_str}'"
                     elif mse_pattern_str_dir:
-                        user_decision_is_include_dir = False; reason_dir_activity = f"Matches user-specified exclude pattern: {mse_pattern_str_dir}"
+                        user_decision_is_include_dir = False
+                        user_reason_dir = f"Matches user-specified exclude pattern: {mse_pattern_str_dir} for dir '{relative_dir_path_str}'"
+                    else:
+                        user_decision_is_include_dir = None
+                        user_reason_dir = f"No user patterns matched for dir '{relative_dir_path_str}'"
 
-                    final_is_included_for_traversal = user_decision_is_include_dir
-                    final_reason_dir_activity = reason_dir_activity
+                    current_dir_rules_imply_inclusion: bool = False
 
-                    if final_is_included_for_traversal is None:
-                        if not no_default_ignore:
-                            matching_default_excludes_dir = []
-                            if is_path_hidden(relative_dir_path): matching_default_excludes_dir.append(relative_dir_path_str)
-                            for p_def in DEFAULT_IGNORE_PATTERNS:
-                                if matches_pattern(relative_dir_path_str, p_def): matching_default_excludes_dir.append(p_def)
-                            msde_pattern_str_default_dir = get_most_specific_pattern(relative_dir_path_str, matching_default_excludes_dir)
-                            if msde_pattern_str_default_dir:
-                                final_is_included_for_traversal = False
-                                final_reason_dir_activity = f"Is a hidden directory: {relative_dir_path_str}" if msde_pattern_str_default_dir == relative_dir_path_str and is_path_hidden(relative_dir_path) else f"Matches default ignore pattern: {msde_pattern_str_default_dir}"
+                    if filter_mode == "default":
+                        if user_decision_is_include_dir is not None:
+                            current_dir_rules_imply_inclusion = user_decision_is_include_dir
+                            reason_for_dir = user_reason_dir
+                        else:
+                            is_hidden_dir = is_path_hidden(relative_dir_path)
+                            default_ignore_match_str_dir = next((p_def for p_def in DEFAULT_IGNORE_PATTERNS if matches_pattern(relative_dir_path_str, p_def)), None) if not no_default_ignore else None
+                            if not no_default_ignore and is_hidden_dir:
+                                current_dir_rules_imply_inclusion = False
+                                reason_for_dir = f"Is a hidden directory: {relative_dir_path_str}"
+                            elif default_ignore_match_str_dir:
+                                current_dir_rules_imply_inclusion = False
+                                reason_for_dir = f"Matches default ignore pattern: {default_ignore_match_str_dir} for dir '{relative_dir_path_str}'"
                             else:
                                 if include_patterns:
-                                    should_traverse = False; current_dir_is_root = (relative_dir_path_str == ".")
-                                    for p_str in include_patterns:
-                                        p_norm = p_str.replace(os.sep, "/")
-                                        path_prefix_to_check = relative_dir_path_str if not current_dir_is_root else ''
-                                        if path_prefix_to_check and path_prefix_to_check != '.': path_prefix_to_check += '/'
-                                        elif current_dir_is_root: path_prefix_to_check = ''
-                                        if p_norm == relative_dir_path_str or \
-                                           (path_prefix_to_check and p_norm.startswith(path_prefix_to_check)) or \
-                                           (current_dir_is_root and "/" in p_norm and not p_norm.startswith(".") and not p_norm.startswith("/")) or \
-                                           (not current_dir_is_root and pathlib.Path(relative_dir_path_str) in pathlib.Path(p_norm).parents):
-                                            should_traverse = True; break
-                                        if "/" not in p_norm and ("*" in p_norm or "?" in p_norm or "[" in p_norm): should_traverse = True; break
-                                        if current_dir_is_root and "/" not in p_norm and not ("*" in p_norm or "?" in p_norm or "[" in p_norm): should_traverse = True; break
-                                    if should_traverse: final_is_included_for_traversal = True; final_reason_dir_activity = f"Traversal allowed to check for include pattern matches: {relative_dir_path_str}"
-                                    else: final_is_included_for_traversal = False; final_reason_dir_activity = f"Does not match any user-specified include pattern (directory): {relative_dir_path_str}"
-                                else: final_is_included_for_traversal = True; final_reason_dir_activity = f"Included by default (directory): {relative_dir_path_str}"
-                        else:
-                            if include_patterns:
-                                should_traverse = False; current_dir_is_root_nd = (relative_dir_path_str == ".")
-                                for p_str in include_patterns:
-                                    p_norm = p_str.replace(os.sep, "/")
-                                    path_prefix_to_check_nd = relative_dir_path_str if not current_dir_is_root_nd else ''
-                                    if path_prefix_to_check_nd and path_prefix_to_check_nd != '.': path_prefix_to_check_nd += '/'
-                                    elif current_dir_is_root_nd: path_prefix_to_check_nd = ''
-                                    if p_norm == relative_dir_path_str or \
-                                       (path_prefix_to_check_nd and p_norm.startswith(path_prefix_to_check_nd)) or \
-                                       (current_dir_is_root_nd and "/" in p_norm and not p_norm.startswith(".") and not p_norm.startswith("/")) or \
-                                       (not current_dir_is_root_nd and pathlib.Path(relative_dir_path_str) in pathlib.Path(p_norm).parents):
-                                        should_traverse = True; break
-                                    if "/" not in p_norm and ("*" in p_norm or "?" in p_norm or "[" in p_norm): should_traverse = True; break
-                                    if current_dir_is_root_nd and "/" not in p_norm and not ("*" in p_norm or "?" in p_norm or "[" in p_norm): should_traverse = True; break
-                                if should_traverse: final_is_included_for_traversal = True; final_reason_dir_activity = f"Traversal allowed to check for include pattern matches (default ignores disabled): {relative_dir_path_str}"
-                                else: final_is_included_for_traversal = False; final_reason_dir_activity = f"Does not match any user-specified include pattern (directory, default ignores disabled): {relative_dir_path_str}"
-                            else: final_is_included_for_traversal = True; final_reason_dir_activity = f"Included by default (directory, default ignores disabled): {relative_dir_path_str}"
-                    elif final_is_included_for_traversal is True:
-                        if not no_default_ignore and msi_pattern_str_dir:
-                            matching_default_excludes_dir = []
-                            if is_path_hidden(relative_dir_path): matching_default_excludes_dir.append(relative_dir_path_str)
-                            for p_def in DEFAULT_IGNORE_PATTERNS:
-                                if matches_pattern(relative_dir_path_str, p_def): matching_default_excludes_dir.append(p_def)
-                            msde_pattern_str_default_dir_check = get_most_specific_pattern(relative_dir_path_str, matching_default_excludes_dir)
-                            if msde_pattern_str_default_dir_check:
-                                score_msi = _calculate_specificity_score(msi_pattern_str_dir)
-                                score_msde = _calculate_specificity_score(msde_pattern_str_default_dir_check)
-                                if score_msde > score_msi:
-                                    final_is_included_for_traversal = False
-                                    final_reason_dir_activity = f"Default ignore pattern '{msde_pattern_str_default_dir_check}' (score {score_msde}) overrides user include '{msi_pattern_str_dir}' (score {score_msi})"
+                                    current_dir_rules_imply_inclusion = False
+                                    reason_for_dir = f"Does not match any user-specified include pattern (directory): {relative_dir_path_str}"
                                 else:
-                                    final_reason_dir_activity += f" (overrides default pattern: {msde_pattern_str_default_dir_check})"
+                                    current_dir_rules_imply_inclusion = True
+                                    reason_for_dir = f"Included by default (mode: default, dir): {relative_dir_path_str}"
+                        log_status_for_dir = "included" if current_dir_rules_imply_inclusion else "excluded"
 
-                if user_decision_is_include_dir is False and mse_pattern_str_dir:
-                    should_traverse_for_descendant_include = False
-                    if include_patterns:
-                        for inc_p_str in include_patterns:
-                            if inc_p_str.startswith(relative_dir_path_str + os.sep) or \
-                               (pathlib.Path(inc_p_str).parent.as_posix() == relative_dir_path_str and "/" not in pathlib.Path(inc_p_str).name):
-                                should_traverse_for_descendant_include = True; break
-                    if should_traverse_for_descendant_include:
-                        final_is_included_for_traversal = True
-                        final_reason_dir_activity = f"Traversal allowed: directory '{relative_dir_path_str}' matches user exclude ('{mse_pattern_str_dir}'), but an include pattern targets a descendant."
+                    elif filter_mode == "include_first":
+                        if user_decision_is_include_dir is True:
+                            current_dir_rules_imply_inclusion = True
+                            reason_for_dir = user_reason_dir
+                        elif user_decision_is_include_dir is False:
+                            current_dir_rules_imply_inclusion = False
+                            reason_for_dir = user_reason_dir
+                        else:
+                            current_dir_rules_imply_inclusion = False
+                            reason_for_dir = f"Does not match controlling include pattern (mode: include_first, dir): {relative_dir_path_str}"
+                            if include_patterns and not msi_pattern_str_dir:
+                                reason_for_dir = f"Does not match user-specified include pattern (mode: include_first, dir): {relative_dir_path_str}"
+                            elif not include_patterns:
+                                reason_for_dir = f"No include patterns provided (mode: include_first implies exclusion for dir): {relative_dir_path_str}"
+                        log_status_for_dir = "included" if current_dir_rules_imply_inclusion else "excluded"
 
-                current_logged_status_dir = "included" if final_is_included_for_traversal else "excluded"
-                current_logged_reason_dir = final_reason_dir_activity
+                    elif filter_mode == "exclude_first":
+                        if user_decision_is_include_dir is False:
+                            current_dir_rules_imply_inclusion = False
+                            reason_for_dir = user_reason_dir
+                        else:
+                            is_hidden_dir = is_path_hidden(relative_dir_path)
+                            default_ignore_match_str_dir = next((p_def for p_def in DEFAULT_IGNORE_PATTERNS if matches_pattern(relative_dir_path_str, p_def)), None) if not no_default_ignore else None
+                            if not no_default_ignore and is_hidden_dir:
+                                current_dir_rules_imply_inclusion = False
+                                reason_for_dir = f"Is a hidden directory (mode: exclude_first, dir): {relative_dir_path_str}"
+                                if user_decision_is_include_dir is True:
+                                    reason_for_dir = f"Is a hidden directory (overriding user include '{msi_pattern_str_dir}' due to mode: exclude_first, dir): {relative_dir_path_str}"
+                            elif default_ignore_match_str_dir:
+                                current_dir_rules_imply_inclusion = False
+                                reason_for_dir = f"Matches default ignore pattern: {default_ignore_match_str_dir} (mode: exclude_first, dir) for '{relative_dir_path_str}'"
+                                if user_decision_is_include_dir is True:
+                                    reason_for_dir = f"Matches default ignore pattern: {default_ignore_match_str_dir} (overriding user include '{msi_pattern_str_dir}' due to mode: exclude_first, dir) for '{relative_dir_path_str}'"
+                            else:
+                                if user_decision_is_include_dir is True:
+                                    current_dir_rules_imply_inclusion = True
+                                    reason_for_dir = user_reason_dir
+                                elif include_patterns:
+                                    current_dir_rules_imply_inclusion = False
+                                    reason_for_dir = f"Does not match any user-specified include pattern (directory): {relative_dir_path_str}"
+                                else:
+                                    current_dir_rules_imply_inclusion = True
+                                    reason_for_dir = f"Included by default (mode: exclude_first, dir): {relative_dir_path_str}"
+                        log_status_for_dir = "included" if current_dir_rules_imply_inclusion else "excluded"
 
-                if final_is_included_for_traversal and \
-                   include_patterns and \
-                   user_decision_is_include_dir is None and \
-                   not (msi_pattern_str_dir and reason_dir_activity.startswith("Matches user-specified include pattern")) and \
-                   not (msi_pattern_str_dir and reason_dir_activity.startswith("Include pattern")) and \
-                   not final_reason_dir_activity.startswith("Included by default"):
-                    is_default_excluded_check = False
-                    if not no_default_ignore:
-                        _matching_default_excludes_for_log = []
-                        if is_path_hidden(relative_dir_path): _matching_default_excludes_for_log.append(relative_dir_path_str)
-                        for _p_def_log in DEFAULT_IGNORE_PATTERNS:
-                            if matches_pattern(relative_dir_path_str, _p_def_log): _matching_default_excludes_for_log.append(_p_def_log)
-                        _msde_log_check = get_most_specific_pattern(relative_dir_path_str, _matching_default_excludes_for_log)
-                        if _msde_log_check:
-                            is_default_excluded_check = True
-                            if not final_reason_dir_activity.startswith("Matches default ignore pattern") and not final_reason_dir_activity.startswith("Is a hidden directory"):
-                                current_logged_status_dir = "excluded"
-                                current_logged_reason_dir = f"Does not match any user-specified include pattern (directory): {relative_dir_path_str}"
-                    if not is_default_excluded_check:
-                         current_logged_status_dir = "excluded"
-                         current_logged_reason_dir = f"Does not match any user-specified include pattern (directory): {relative_dir_path_str}"
+                    should_traverse_dir = current_dir_rules_imply_inclusion
 
-                if not final_is_included_for_traversal:
-                    stats["excluded_items_count"] += 1
-                    log_events.append({"path": relative_dir_path_str, "item_type": "folder", "status": "excluded", "size_kb": dir_size_kb, "reason": final_reason_dir_activity})
-                    dirs_to_remove.append(dir_name)
-                else:
-                    if current_logged_status_dir == "excluded" and final_is_included_for_traversal :
-                        pass
-                    log_events.append({"path": relative_dir_path_str, "item_type": "folder", "status": current_logged_status_dir, "size_kb": dir_size_kb, "reason": current_logged_reason_dir})
+                    if not should_traverse_dir and include_patterns:
+                        needs_traversal_for_descendants = any(
+                            p.startswith(relative_dir_path_str + os.sep) or
+                            (not p.endswith('/') and ("*" in p or "?" in p or "[" in p) and "/" not in p)
+                            for p in include_patterns
+                        )
+                        if needs_traversal_for_descendants:
+                            should_traverse_dir = True
+                            if log_status_for_dir == "excluded":
+                                reason_for_dir += " (but traversed to find potential descendant matches)"
+
+                    if not should_traverse_dir:
+                        stats["excluded_items_count"] += 1
+                        log_events.append({"path": relative_dir_path_str, "item_type": "folder", "status": "excluded", "size_kb": dir_size_kb, "reason": reason_for_dir})
+                        dirs_to_remove.append(dir_name)
+                    else:
+                        log_events.append({"path": relative_dir_path_str, "item_type": "folder", "status": log_status_for_dir, "size_kb": dir_size_kb, "reason": reason_for_dir})
 
             if dirs_to_remove:
                 dirs_orig[:] = [d for d in dirs_orig if d not in dirs_to_remove]
