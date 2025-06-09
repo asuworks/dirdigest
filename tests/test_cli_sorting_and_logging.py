@@ -4,6 +4,7 @@ import os
 import re
 from pathlib import Path
 from unittest import mock
+from typing import Optional, List # Import Optional for type hinting
 from rich.markup import escape # For escaping patterns in log messages
 
 
@@ -13,8 +14,10 @@ from click.testing import CliRunner
 from dirdigest import cli as dirdigest_cli
 from dirdigest.constants import TOOL_VERSION, LogEvent, PathState # Import LogEvent TypedDict and PathState
 from dirdigest.formatter import format_log_event_for_cli, RICH_TAG_RE  # Function to test and regex
+import functools # Added for cmp_to_key (already in original cli.py)
 
-# --- Helper for checking log lines ---
+
+# --- Helper for checking log lines (Updated) ---
 def check_log_line_new(
     line: str,
     expected_status_summary: str, # "included", "excluded", "error", "unknown"
@@ -29,7 +32,6 @@ def check_log_line_new(
 ):
     """Checks if a formatted log line contains all the expected components based on the new format."""
 
-    # Check for overall status indicator (color tag and symbol)
     if expected_status_summary == "included":
         assert "[log.included]" in line and "✔" in line
         assert "Included" in line
@@ -37,9 +39,9 @@ def check_log_line_new(
         assert "[log.excluded]" in line and "✘" in line
         assert "Excluded" in line
     elif expected_status_summary == "error":
-        assert "[log.warning]" in line and "!" in line # Assuming error maps to warning style
+        assert "[log.warning]" in line and "!" in line
         assert "Error" in line
-    elif expected_status_summary == "unknown": # Default from formatter if status missing
+    elif expected_status_summary == "unknown":
         assert "[log.warning]" in line and "!" in line
         assert "Unknown" in line
 
@@ -47,26 +49,29 @@ def check_log_line_new(
     assert expected_item_type in line
     assert f"[log.path]{expected_path}[/log.path]" in line
 
-    if expected_size_kb_str:
-        assert f"({expected_size_kb_str})" in line
-    elif expected_size_kb_str == "": # Explicitly checking for empty size string (e.g. for folders with 0 size in some contexts)
-        stripped_line_for_size_check = RICH_TAG_RE.sub("", line.split(":")[0]) # Check before path
+    if expected_size_kb_str and expected_size_kb_str != "N/A" and expected_size_kb_str != "":
+        # Search for the size string possibly surrounded by Rich tags for color, within parentheses
+        # Example: ([grey39]2.35KB[/grey39]) or (2.35KB)
+        assert re.search(rf"\(\s*(\[.*?\])?{re.escape(expected_size_kb_str)}(\[.*?\])?\s*\)", line), \
+               f"Size string '({expected_size_kb_str})' not found correctly in '{line}'"
+    elif expected_size_kb_str == "N/A":
+         assert "N/A" in line # Simpler check for N/A as its formatting is also simpler
+    elif expected_size_kb_str == "":
+        stripped_line_for_size_check = RICH_TAG_RE.sub("", line.split(":")[0])
         assert "KB" not in stripped_line_for_size_check
 
-    # Check details block
     if any([expected_state_name, expected_reason, expected_msi, expected_mse, expected_default_rule]):
         assert "[log.details]" in line
         if expected_state_name:
             assert f"State: {expected_state_name}" in line
         if expected_reason:
-            assert f"Reason: {expected_reason}" in line
+            assert expected_reason in line
         if expected_msi:
             assert f"MSI: '{escape(expected_msi)}'" in line
         if expected_mse:
             assert f"MSE: '{escape(expected_mse)}'" in line
         if expected_default_rule:
             assert f"DefaultRule: '{escape(expected_default_rule)}'" in line
-
 
 # --- Unit tests for format_log_event_for_cli (Updated) ---
 
@@ -98,20 +103,19 @@ def test_format_log_event_excluded_folder_new():
 
 def test_format_log_event_error_status_new():
     log_event: LogEvent = {
-        "path": "bad_dir/", "item_type": "folder", "status": "error", # 'status' here is summary
-        "state": PathState.FINAL_EXCLUDED.name, # Example, could be specific error state
+        "path": "bad_dir/", "item_type": "folder", "status": "error",
+        "state": PathState.FINAL_EXCLUDED.name,
         "reason": "Read error: Permission denied", "size_kb": 0.0
     }
     result = format_log_event_for_cli(log_event)
     check_log_line_new(
         result, expected_status_summary="error", expected_item_type="folder", expected_path="bad_dir/",
-        expected_size_kb_str="", # Size 0 for error/folder might not show "(0.00KB)"
+        expected_size_kb_str="",
         expected_state_name=PathState.FINAL_EXCLUDED.name,
         expected_reason="Read error: Permission denied"
     )
-    # Check if size part is truly absent or shows (0.00KB) based on formatter's logic for errors
     if log_event.get("size_kb", 0.0) == 0.0 and log_event.get("status") == "error":
-         assert "KB" not in result.split(":")[0] # Check before path part
+         assert "KB" not in result.split(":")[0]
 
 def test_format_log_event_excluded_no_specific_pattern_details():
     log_event: LogEvent = {
@@ -121,50 +125,54 @@ def test_format_log_event_excluded_no_specific_pattern_details():
     }
     result = format_log_event_for_cli(log_event)
     check_log_line_new(
-        result, status="excluded", item_type="file", path="temp.tmp", size_str="1.00KB",
+        result, expected_status_summary="excluded", expected_item_type="file", expected_path="temp.tmp",
+        expected_size_kb_str="1.00KB",
         expected_state_name=PathState.IMPLICITLY_EXCLUDED_FINAL_STEP.name,
         expected_reason="No matching include pattern"
     )
 
 def test_format_log_event_size_none_or_invalid():
-    log_event: LogEvent = {
+    log_event_none: LogEvent = {
         "path": "data.bin", "item_type": "file", "status": "included",
-        "state": PathState.FINAL_INCLUDED.name, "size_kb": None, # Test None
+        "state": PathState.FINAL_INCLUDED.name, "size_kb": None,
         "reason": "Included by default"
     }
-    result_none = format_log_event_for_cli(log_event)
+    result_none = format_log_event_for_cli(log_event_none)
     check_log_line_new(
-        result_none, status="included", item_type="file", path="data.bin", size_str="N/A",
-        expected_state_name=PathState.FINAL_INCLUDED.name, reason="Included by default"
+        result_none, expected_status_summary="included", expected_item_type="file",
+        expected_path="data.bin", expected_size_kb_str="N/A",
+        expected_state_name=PathState.FINAL_INCLUDED.name, expected_reason="Included by default"
     )
-    assert "([grey39]N/A[/grey39])" in result_none # Specific check for N/A formatting
+    assert "([grey39]N/A[/grey39])" in result_none
 
     log_event_invalid: LogEvent = { # type: ignore
         "path": "data2.bin", "item_type": "file", "status": "excluded",
-        "state": PathState.FINAL_EXCLUDED.name, "size_kb": "very large", # Test invalid string
+        "state": PathState.FINAL_EXCLUDED.name, "size_kb": "very large",
         "reason": "Size could not be determined"
     }
     result_invalid = format_log_event_for_cli(log_event_invalid)
     check_log_line_new(
-        result_invalid, status="excluded", item_type="file", path="data2.bin", size_str="N/A",
-        expected_state_name=PathState.FINAL_EXCLUDED.name, reason="Size could not be determined"
+        result_invalid, expected_status_summary="excluded", expected_item_type="file",
+        expected_path="data2.bin", expected_size_kb_str="N/A",
+        expected_state_name=PathState.FINAL_EXCLUDED.name,
+        expected_reason="Size could not be determined"
     )
     assert "([grey39]N/A[/grey39])" in result_invalid
 
 
 def test_format_log_event_minimal_data_new():
-    log_event: LogEvent = {"path": "minimal.txt"} # All other fields missing
+    log_event: LogEvent = {"path": "minimal.txt"}
     result = format_log_event_for_cli(log_event)
     check_log_line_new(
-        result, status="unknown", item_type="item", path="minimal.txt",
-        size_str="", # Expect no size string for unknown status and 0.0 size
-        expected_state_name=PathState.PENDING_EVALUATION.name # Default state in formatter if missing
+        result, expected_status_summary="unknown", expected_item_type="item",
+        expected_path="minimal.txt",
+        expected_size_kb_str="",
+        expected_state_name=PathState.PENDING_EVALUATION.name
     )
     assert "KB" not in result.split(":")[0]
 
 
 # --- Existing tests for JSON/Markdown output format (remain unchanged) ---
-# ... (rest of the file from the provided content) ...
 def get_included_files_from_json(json_output_str: str) -> set[str]:
     try:
         data = json.loads(json_output_str)
