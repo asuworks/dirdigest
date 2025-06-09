@@ -2,7 +2,9 @@ import functools  # Added for cmp_to_key
 import json as json_debugger  # For debug tree printing
 import logging
 import pathlib
+import sys # Required for sys.argv access
 import time
+from enum import Enum, auto
 from typing import List, Tuple  # Added for type hints
 
 import click
@@ -10,7 +12,8 @@ from rich.markup import escape
 
 from dirdigest import core
 from dirdigest import formatter as dirdigest_formatter
-from dirdigest.constants import TOOL_NAME, TOOL_VERSION
+# Import OperationalMode from constants where it's now defined
+from dirdigest.constants import TOOL_NAME, TOOL_VERSION, OperationalMode
 from dirdigest.core import LogEvent  # Added LogEvent for type hinting
 from dirdigest.formatter import format_log_event_for_cli  # Added log event formatter
 from dirdigest.utils import clipboard as dirdigest_clipboard
@@ -161,6 +164,9 @@ from dirdigest.utils.tokens import approximate_token_count
     default=None,  # Handled explicitly later if None or empty
     help="Sort the detailed item-by-item log output. Specify keys in order. 'status': excluded then included. 'size': largest first. 'path': alphabetically. Default: status, size. Allowed multiple times e.g. --sort-output-log-by status --sort-output-log-by size.",
 )
+
+# OperationalMode is now imported from dirdigest.constants
+
 def main_cli(
     ctx: click.Context,
     directory_arg: pathlib.Path,
@@ -272,10 +278,57 @@ def main_cli(
         log.info(f"CLI: Follow symlinks: {final_follow_symlinks}, Ignore errors: {final_ignore_errors}")
         log.info(f"CLI: Clipboard: {final_clipboard}")
 
+    # Determine Operational Mode based on sys.argv and final include/exclude lists
+    first_i_idx = float('inf')
+    first_x_idx = float('inf')
+
+    # Find the first occurrence of -i/--include and -x/--exclude in sys.argv
+    for idx, arg in enumerate(sys.argv):
+        if arg == "-i" or arg == "--include":
+            if idx < first_i_idx:
+                first_i_idx = idx
+        elif arg == "-x" or arg == "--exclude":
+            if idx < first_x_idx:
+                first_x_idx = idx
+
+    operational_mode: OperationalMode
+
+    # Use `final_include` (which is already resolved from CLI + Config)
+    # Use `raw_exclude_patterns` for excludes, as this is before auto-adding output file path.
+    has_final_includes = bool(final_include)
+    has_user_excludes = bool(raw_exclude_patterns) # raw_exclude_patterns = final_settings.get("exclude", exclude if exclude else [])
+
+    if not has_final_includes and not has_user_excludes:
+        operational_mode = OperationalMode.MODE_INCLUDE_ALL_DEFAULT
+    elif has_final_includes and not has_user_excludes:
+        operational_mode = OperationalMode.MODE_ONLY_INCLUDE
+    elif not has_final_includes and has_user_excludes:
+        operational_mode = OperationalMode.MODE_ONLY_EXCLUDE
+    else:  # Both include and user-specified exclude patterns are present
+        if first_i_idx < first_x_idx:
+            operational_mode = OperationalMode.MODE_INCLUDE_FIRST
+        elif first_x_idx < first_i_idx:
+            operational_mode = OperationalMode.MODE_EXCLUDE_FIRST
+        else:
+            # This means both include and exclude patterns are present,
+            # but their relative order couldn't be determined from CLI flags
+            # (e.g., all from config, or one from CLI and other from config in a way that doesn't set both idx).
+            # Defaulting to EXCLUDE_FIRST for such ambiguous mixed cases.
+            log.debug(
+                "CLI: Both include and exclude patterns present, but order via CLI flags is ambiguous "
+                "(e.g., patterns from config or mixed sources). Defaulting to EXCLUDE_FIRST behavior."
+            )
+            operational_mode = OperationalMode.MODE_EXCLUDE_FIRST
+
+    log.info(f"CLI: Operational mode determined: {operational_mode.name}")
+
+    # Pass operational_mode to core.process_directory_recursive
     processed_items_generator, stats_from_core, log_events_from_core = core.process_directory_recursive(
         base_dir_path=final_directory,
+        operational_mode=operational_mode,
         include_patterns=final_include,
-        exclude_patterns=final_exclude,
+        user_exclude_patterns=raw_exclude_patterns, # For MSE determination (user-defined rules)
+        effective_app_exclude_patterns=final_exclude, # For actual exclusion (includes auto output file)
         no_default_ignore=final_no_default_ignore,
         max_depth=final_max_depth,
         follow_symlinks=final_follow_symlinks,

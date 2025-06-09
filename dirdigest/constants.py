@@ -143,3 +143,38 @@ DEFAULT_IGNORE_PATTERNS = [
     "**/MANIFEST.MF",  # Java manifest files often in target/ or build/
     # Add any other project-specific or generally unwanted patterns here
 ]
+
+from enum import Enum, auto
+
+class OperationalMode(Enum):
+    MODE_INCLUDE_ALL_DEFAULT = auto() # No -i or -x flags
+    MODE_ONLY_INCLUDE = auto()        # Only -i flags
+    MODE_ONLY_EXCLUDE = auto()        # Only -x flags
+    MODE_INCLUDE_FIRST = auto()       # -i appears before -x
+    MODE_EXCLUDE_FIRST = auto()       # -x appears before -i
+
+class PathState(Enum):
+    PENDING_EVALUATION = auto()
+    MATCHED_BY_USER_INCLUDE = auto()
+    USER_EXCLUDED_BY_SPECIFICITY = auto()
+    USER_EXCLUDED_DIRECTLY = auto()
+    DEFAULT_EXCLUDED = auto()
+    OVERRIDDEN_DEFAULT_EXCLUDE_BY_USER_INCLUDE = auto()
+    IMPLICITLY_EXCLUDED_FINAL_STEP = auto()
+    FINAL_INCLUDED = auto()
+    FINAL_EXCLUDED = auto()
+    TRAVERSE_BUT_EXCLUDE_SELF = auto() # For directories whose contents might be included
+    ERROR_CONFLICTING_PATTERNS = auto()
+
+from typing import TypedDict, Optional, List as ListTypeHint # Avoid conflict with List in older type hints
+
+class LogEvent(TypedDict, total=False):
+    path: str
+    item_type: str # "file" or "folder"
+    status: str    # "included", "excluded", "error", "traversed"
+    reason: Optional[str] # Detailed decision reason
+    size_kb: Optional[float]
+    state: str # Name of the PathState enum, e.g., "FINAL_INCLUDED"
+    msi: Optional[str] # Most specific include pattern string
+    mse: Optional[str] # Most specific exclude pattern string
+    default_rule: Optional[str] # Matched default rule pattern string

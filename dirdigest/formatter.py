@@ -3,13 +3,15 @@ import datetime
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List  # Changed from dict, list to Dict, List
+from typing import Any, Dict, List # Standard library imports
 
-from dirdigest.constants import TOOL_VERSION  # Import TOOL_VERSION
-from dirdigest.core import DigestItemNode, LogEvent  # Import the type hint & LogEvent
+from dirdigest.constants import TOOL_VERSION, LogEvent, PathState  # Import LogEvent TypedDict and PathState
+from dirdigest.core import DigestItemNode # Core data structures
+from rich.markup import escape # For escaping patterns in log messages
+
 
 # Define a common structure for metadata earlier if not already defined elsewhere
-Metadata = Dict[str, Any]
+Metadata = Dict[str, Any] # Kept as Dict[str, Any] for broader compatibility here
 
 
 # Regex to strip Rich console tags for length calculation
@@ -25,29 +27,53 @@ def format_log_event_for_cli(log_event: LogEvent) -> str:
     Formats a single log event dictionary into a string for CLI display,
     with alignment based on the colon.
     """
-    status = log_event.get("status", "unknown")
-    item_type = log_event.get("item_type", "item")
+    # path, item_type, status (overall included/excluded), size_kb are existing
     path = log_event.get("path", "")
-    size_kb = log_event.get("size_kb", 0.0)
-    reason = log_event.get("reason")
+    item_type = log_event.get("item_type", "item")
+    status_summary = log_event.get("status", "unknown") # "included" or "excluded"
 
-    # Capitalize status for display
-    display_status = status.capitalize()
+    # New fields from PathState logic
+    state_name = log_event.get("state", PathState.PENDING_EVALUATION.name) # Get string name
+    decision_reason = log_event.get("reason", "") # This is the detailed decision_reason
+    msi_pattern = log_event.get("msi")
+    mse_pattern = log_event.get("mse")
+    default_rule_pattern = log_event.get("default_rule")
+
+    size_kb = log_event.get("size_kb", 0.0)
+
+    # Determine display status and symbol based on the summary status
+    # (which should be derived from the final PathState in core.py)
+    if status_summary == "included":
+        status_symbol = "[bold green]✔[/bold green]"
+        status_color_tag = "log.included"
+        display_status_text = "Included"
+    elif status_summary == "excluded":
+        status_symbol = "[bold red]✘[/bold red]"
+        status_color_tag = "log.excluded"
+        display_status_text = "Excluded"
+    else: # error, unknown, etc.
+        status_symbol = "[bold yellow]![/bold yellow]"
+        status_color_tag = "log.warning" # Or a new tag for unknown/error
+        display_status_text = status_summary.capitalize()
 
     # Determine prefix for item_type based on its value
     item_type_prefix = "  " if item_type == "file" else ""
 
     # Prepare size string, formatted to two decimal places
     try:
-        formatted_size = f"{float(size_kb):.2f}"
+        formatted_size = f"{float(size_kb):.2f}" if size_kb is not None else "N/A"
     except (ValueError, TypeError):
         formatted_size = "N/A"
 
     # Construct the size part to be inserted
-    size_part = f"[grey39] ({formatted_size}KB)[/grey39]"
+    size_part = f" ([grey39]{formatted_size}KB[/grey39])" if status_summary == "included" or size_kb > 0 else ""
+
 
     # Construct the left part of the message (before the colon), including Rich tags
-    left_part_with_markup = f"[log.{status}]{display_status} {item_type_prefix}{item_type}{size_part}[/log.{status}]"
+    # Example: [green]✔ Included file (12.34KB)[/green]
+    left_part_with_markup = (
+        f"[{status_color_tag}]{status_symbol} {display_status_text} {item_type_prefix}{item_type}{size_part}[/{status_color_tag}]"
+    )
 
     # Calculate the visible length of the left part by stripping Rich tags
     visible_left_part_content = RICH_TAG_RE.sub("", left_part_with_markup)
@@ -62,11 +88,21 @@ def format_log_event_for_cli(log_event: LogEvent) -> str:
     # Main message part, now including padding before the colon
     message = f"{left_part_with_markup}{padding}: [log.path]{path}[/log.path]"
 
-    # Append reason if excluded and reason is present
-    if status == "excluded" and reason:
-        message += f" ([log.reason]{reason}[/log.reason])"
-    elif status == "error" and reason:  # Also show reason for errors
-        message += f" ([log.reason]{reason}[/log.reason])"
+    # Detailed explanation part
+    details_parts = []
+    details_parts.append(f"State: {state_name}")
+    if decision_reason: # decision_reason is the primary explanation from core logic
+        details_parts.append(f"Reason: {decision_reason}")
+
+    if msi_pattern:
+        details_parts.append(f"MSI: '{escape(msi_pattern)}'")
+    if mse_pattern:
+        details_parts.append(f"MSE: '{escape(mse_pattern)}'")
+    if default_rule_pattern:
+        details_parts.append(f"DefaultRule: '{escape(default_rule_pattern)}'")
+
+    if details_parts:
+        message += f" ([log.details]{', '.join(details_parts)}[/log.details])"
 
     return message
 

@@ -71,27 +71,42 @@ The tests are organized into several files, each focusing on a specific aspect o
     *   **Focus**: Command-Line Interface (CLI) argument parsing and basic invocation.
     *   **Coverage**: Help messages, version output, basic successful invocation, invalid arguments, parsing of options, clipboard flags.
 
+*   **`tests/test_cli_mode_determination.py`**:
+    *   **Focus**: Unit testing the logic that determines the `OperationalMode` (e.g., `MODE_INCLUDE_FIRST`, `MODE_EXCLUDE_FIRST`) based on CLI arguments and resolved patterns.
+    *   **Coverage**: Various combinations of `-i`/`--include` and `-x`/`--exclude` flags, including their order and scenarios where patterns might come from configuration files.
+
 *   **`tests/test_cli_sorting_and_logging.py`**:
     *   **Focus**: Verification of the detailed console log output, specifically its sorting behavior and formatting.
-    *   **Coverage**: Default log sorting (status then size), various `--sort-output-log-by` scenarios (path-only, status then path, etc.), presence/absence of group headers ("EXCLUDED ITEMS", "INCLUDED ITEMS"), correct formatting of individual log lines (including item sizes and exclusion reasons), YAML configuration for sorting, and CLI override for sorting.
+    *   **Coverage**: Default log sorting, various `--sort-output-log-by` scenarios, presence/absence of group headers, correct formatting of individual log lines (now including more detailed state and pattern information).
 
 *   **`tests/test_configuration.py`**:
     *   **Focus**: Loading and merging settings from config files and CLI arguments.
-    *   **Coverage**: Default/custom config files, CLI override precedence, YAML data types, config structures, malformed/missing files (including `sort_output_log_by` key).
+    *   **Coverage**: Default/custom config files, CLI override precedence, YAML data types, config structures, malformed/missing files.
 
 *   **`tests/test_content_processing.py`**:
-    *   **Focus**: How `dirdigest` handles file content after selection.
-    *   **Coverage**: `--max-size`, empty files, file read errors (permission, Unicode) with/without `--ignore-errors`, UTF-8 handling.
+    *   **Focus**: How `dirdigest` handles file content *after* a file has been selected for inclusion by the filtering logic.
+    *   **Coverage**: `--max-size` (as a post-filter), empty files, file read errors (permission, Unicode) with/without `--ignore-errors`, UTF-8 handling.
 
 *   **`tests/test_output_formatting.py`**:
-    *   **Focus**: Validation of Markdown and JSON outputs, and unit tests for log formatting functions.
-    *   **Coverage (Markdown)**: Header, directory structure visualization, file content sections, language hints, error representation.
-    *   **Coverage (JSON)**: Metadata fields, `root` node structure.
-    *   **Coverage (Log Formatting)**: Unit tests for `format_log_event_for_cli` ensuring correct string output for various log event data.
+    *   **Focus**: Validation of Markdown and JSON outputs, and unit tests for the `format_log_event_for_cli` function.
+    *   **Coverage (Markdown/JSON)**: Correct structure and content based on processed items.
+    *   **Coverage (Log Formatting)**: Ensures `format_log_event_for_cli` correctly displays new `LogEvent` fields like `state`, `reason`, `msi`, `mse`, and `default_rule`.
+
+*   **`tests/test_patterns_specificity.py`**:
+    *   **Focus**: Detailed unit testing of the pattern parsing (`_parse_pattern`), specificity comparison (`_compare_specificity`), and selection of the most specific pattern (`determine_most_specific_pattern`).
+    *   **Coverage**: Various scenarios testing specificity rules: depth wins, explicit name over glob, suffix proximity, and tie-breaking by original index. Also tests parsing of different pattern types into `PatternProperties`.
 
 *   **`tests/test_traversal_filtering.py`**:
-    *   **Focus**: Core file and directory traversal logic, and filtering mechanisms.
-    *   **Coverage**: Basic traversal, default ignores, `--no-default-ignore`, hidden files, `--max-depth`, include/exclude patterns, symlink handling.
+    *   **Focus**: Comprehensive testing of the core file/directory traversal and filtering logic, integrating operational modes, pattern specificity, default rules, and other exclusion factors.
+    *   **Coverage**:
+        *   All five `OperationalMode`s (`MODE_INCLUDE_ALL_DEFAULT`, `MODE_ONLY_INCLUDE`, `MODE_ONLY_EXCLUDE`, `MODE_INCLUDE_FIRST`, `MODE_EXCLUDE_FIRST`).
+        *   Complex interactions between Most Specific Include (MSI), Most Specific Exclude (MSE), and default ignore rules.
+        *   Correct application of `no_default_ignore`.
+        *   Handling of hidden files and directories.
+        *   `PathState.TRAVERSE_BUT_EXCLUDE_SELF` logic for directories.
+        *   Non-pattern based exclusions: `--max-depth`, `--max-size` (as applied by core filtering logic), symlink handling (`--follow-symlinks`), and file read errors.
+        *   Edge cases like conflicting patterns (`PathState.ERROR_CONFLICTING_PATTERNS`).
+    *   **Methodology**: Uses a helper function `create_test_fs` to dynamically create temporary file system structures for each test case and `run_core_processing_test` to execute the core logic and assert outcomes based on included files and detailed `LogEvent` data.
 
 ## Interpreting Test Outputs
 
@@ -99,14 +114,26 @@ When running tests, especially with verbose flags (`-v`, `-vv`), `dirdigest` may
 
 *   **Verbose Processing Log:** When enabled (typically by tests passing `-v` or `--verbose`), a detailed log of processed files and folders is printed.
     *   **Format:** Each line includes the item's status (included/excluded), type (file/folder), relative path, reason for exclusion (if any), and its size in kilobytes (e.g., `(Size: 10.52KB)`).
-    *   **Default Sorting:** This log is sorted by default: excluded items appear before included items. Within these groups, folders (by path) precede files (by size descending, then path).
+    *   **Default Sorting:** This log is sorted by default: excluded items appear before included items. Within these groups, folders (by path) precede files (by size descending, then path). The `status` field in `LogEvent` (which drives this sort) reflects the final outcome (e.g., "included", "excluded").
     *   **Headers:** Group headers like "--- EXCLUDED ITEMS ---" and "--- INCLUDED ITEMS ---" are typically present unless sorting is by path only.
+    *   **Detailed Reasons:** Each log line now provides more detailed reasons for inclusion/exclusion, including the determined `PathState` (e.g., `FINAL_INCLUDED`, `USER_EXCLUDED_BY_SPECIFICITY`), the Most Specific Include (MSI) pattern, Most Specific Exclude (MSE) pattern, and any matched Default Rule pattern that influenced the decision. This is particularly relevant for tests in `test_traversal_filtering.py`.
 *   **Final Digest:** Tests may also capture and assert against the final digest output (Markdown or JSON), which is separate from the verbose processing log.
 
-## Mock Fixtures (`tests/fixtures/test_dirs/`)
+## Mock Fixtures and Test Structures
 
-The test suite uses various pre-defined directory structures for testing. These structures are created by the `tests/scripts/setup_test_dirs.sh` script inside `tests/fixtures/test_dirs/`. The `make test` command runs this script automatically. If you run `pytest` directly, you should execute `bash tests/scripts/setup_test_dirs.sh` first.
+The test suite employs two main strategies for file system structures:
 
+1.  **Pre-defined Mock Fixtures (`tests/fixtures/test_dirs/`)**:
+    *   These are larger, more complex directory structures created by the `tests/scripts/setup_test_dirs.sh` script.
+    *   The `make test` command runs this script automatically. If you run `pytest` directly for tests that might rely on these (primarily older tests or broader CLI integration tests), you should execute `bash tests/scripts/setup_test_dirs.sh` first.
+    *   The `temp_test_dir` fixture in `conftest.py` often copies these into a temporary location for test isolation.
+    *   These are useful for testing general CLI behavior, default ignore patterns across a varied structure, and content processing features.
+    *   Examples of such directories:
+        *   `simple_project/`, `complex_project/`, `content_processing_dir/`, `encoding_issues_dir/`, `hidden_files_dir/`, `lang_hint_project/`, `large_files_dir/`, `special_chars_dir/`, `symlink_dir/`.
+
+2.  **Dynamically Created Test Structures**:
+    *   Many newer tests, especially in `test_traversal_filtering.py` and `test_patterns_specificity.py` (though the latter doesn't always need a file system), use a helper function (e.g., `create_test_fs` within the test file) to create specific, minimal file/directory structures on-the-fly within a temporary path provided by `pytest` (e.g., the `tmp_path` fixture).
+    *   This approach is highly effective for unit testing specific filtering rules, operational modes, and edge cases in isolation without relying on larger, pre-defined fixtures. It makes tests more self-contained and easier to understand.
 These mock directories are designed to cover a wide range of scenarios:
 
 *   `simple_project/`: A basic project with a few files and one subdirectory.
