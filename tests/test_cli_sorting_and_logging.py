@@ -386,7 +386,7 @@ def test_json_output_metadata_and_root_structure(runner: CliRunner, temp_test_di
     # In simple_project, there are no default ignored files, so excluded count should be 0.
     # Plus one for the auto-excluded output file if we weren't using "-o -"
     assert metadata["included_files_count"] == 3
-    assert metadata["excluded_items_count"] == 0 # No auto-exclude for stdout
+    assert metadata["excluded_items_count"] == 0  # No auto-exclude for stdout
 
     assert "root" in data
     root_node = data["root"]

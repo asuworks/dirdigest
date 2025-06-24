@@ -62,13 +62,13 @@ class TestMaxSizeHandling:
             "--no-default-ignore",
             "--max-size",
             str(max_size_kb),
-            "-o", # Added
+            "-o",  # Added
             "-",  # Added
             "--no-clipboard",
         ]
         # The CWD is already temp_test_dir due to fixture
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, cli_args) # Runs on CWD
+            result = runner.invoke(dirdigest_cli.main_cli, cli_args)  # Runs on CWD
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
         assert result.exit_code == 0, f"CLI failed for max-size {max_size_kb}. Stderr: {result.stderr}"
@@ -119,7 +119,7 @@ class TestErrorHandling:
             "--format",
             "json",
             "--no-default-ignore",
-            "-o", # Added
+            "-o",  # Added
             "-",  # Added
             "--no-clipboard",
         ] + cli_flags
@@ -158,7 +158,7 @@ class TestErrorHandling:
         try:
             # CWD is already temp_dir_path due to fixture
             with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-                result = runner.invoke(dirdigest_cli.main_cli, base_args) # Runs on CWD
+                result = runner.invoke(dirdigest_cli.main_cli, base_args)  # Runs on CWD
                 if mock_rich_print.call_args_list:
                     json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
             assert result.exit_code == 0, f"CLI failed. Args:{base_args}. Stderr: {result.stderr}"
@@ -182,7 +182,7 @@ class TestErrorHandling:
             runner,
             temp_test_dir,
             "permission_denied_file.txt",
-            [], # No --ignore-errors
+            [],  # No --ignore-errors
             make_unreadable=True,
         )
         assert file_node is None, "File with permission error was included when it should be excluded."

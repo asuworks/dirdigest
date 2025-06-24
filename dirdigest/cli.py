@@ -211,8 +211,10 @@ def main_cli(
             )
             final_directory = directory_arg
 
-    final_output_path_str_or_path = final_settings.get("output", output) # Could be string from config, or Path from CLI
-    final_output_path: pathlib.Path | None = None # Initialize
+    final_output_path_str_or_path = final_settings.get(
+        "output", output
+    )  # Could be string from config, or Path from CLI
+    final_output_path: pathlib.Path | None = None  # Initialize
 
     if final_output_path_str_or_path is None:
         # New default: <DIR NAME>-digest.md
@@ -221,12 +223,12 @@ def main_cli(
         final_output_path = final_directory.resolve() / f"{dir_name}-digest.md"
         log.info(f"CLI: No output file specified, defaulting to: [log.path]{final_output_path}[/log.path]")
     elif str(final_output_path_str_or_path) == "-":
-        final_output_path = None # Explicitly signifies stdout
+        final_output_path = None  # Explicitly signifies stdout
         log.info("CLI: Outputting to stdout as requested by '-'")
     else:
         if isinstance(final_output_path_str_or_path, str):
             final_output_path = pathlib.Path(final_output_path_str_or_path)
-        else: # Already a Path object
+        else:  # Already a Path object
             final_output_path = final_output_path_str_or_path
         # Resolve to make it absolute if it's relative, for consistent logging and exclusion
         # final_output_path = final_output_path.resolve() # Resolving early might be problematic if parent doesn't exist yet
@@ -273,7 +275,7 @@ def main_cli(
         effective_sort_keys = list(final_sort_output_log_by)
 
     log.debug(f"CLI: Final effective settings after merge: {final_settings}")
-    log.info(f"CLI: Processing directory: [log.path]{final_directory.resolve()}[/log.path]") # Log resolved path
+    log.info(f"CLI: Processing directory: [log.path]{final_directory.resolve()}[/log.path]")  # Log resolved path
     if final_output_path:
         # Resolve the path for consistent logging, especially if it was the default relative path
         log.info(f"CLI: Output will be written to: [log.path]{final_output_path.resolve()}[/log.path]")

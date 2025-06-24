@@ -577,7 +577,7 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
                 )
         assert result_f.exit_code == 0
         included_f = get_included_files_from_json(json_output_str_follow)
-        assert "broken_link" not in included_f # Should be excluded because it's broken and errors not ignored
+        assert "broken_link" not in included_f  # Should be excluded because it's broken and errors not ignored
 
         # Case 3: Follow symlinks, WITH ignore errors
         json_output_str_follow_ignore = ""
