@@ -91,7 +91,7 @@ Navigate to the directory you want to analyze and run:
 dirdigest
 ```
 
-This will process the current directory, apply default ignore patterns, and save a Markdown-formatted digest to a file named `<CURRENT_DIR_NAME>-digest.md` in the current directory. The path to this output file will be copied to your clipboard by default.
+This will process the current directory, apply default ignore patterns, and save a Markdown-formatted digest to a file named `<CURRENT_DIR_NAME>-digest.md` in the current directory. The path to the *directory containing* this output file will be copied to your clipboard by default.
 
 To save the output to a specific file:
 
@@ -136,7 +136,7 @@ The following table lists the command-line options and their corresponding keys 
 | `--no-default-ignore`         |       | `no_default_ignore`     | Disable all default ignore patterns (e.g., `.git`, `__pycache__`, `node_modules`, common binary/media files, hidden items like `.*`).                                     | `False`                   |
 | `--follow-symlinks`           |       | `follow_symlinks`       | Follow symbolic links to directories and files. By default, symlinks themselves are noted but not traversed/read.                                                       | `False`                   |
 | `--ignore-errors`             |       | `ignore_errors`         | Continue processing if an error occurs while reading a file (e.g., permission denied, decoding error). The file's content will be omitted or noted as an error.         | `False`                   |
-| `--clipboard / --no-clipboard`| `-c`  | `clipboard`             | Copy the generated digest (if output to stdout using `-o -`) or the output file's full path (if outputting to a file) to clipboard. WSL paths converted. Use `--no-clipboard` to disable. | `True`                    |
+| `--clipboard / --no-clipboard`| `-c`  | `clipboard`             | Copy the generated digest (if output to stdout using `-o -`) or the output file's directory path (if outputting to a file) to clipboard. WSL paths converted. Use `--no-clipboard` to disable. | `True`                    |
 | `--verbose`                   | `-v`  | `verbose`               | Increase verbosity. `-v` for INFO, `-vv` for DEBUG console output. YAML: 0 (WARNING), 1 (INFO), 2 (DEBUG).                                                            | `0` (WARNINGS)            |
 | `--quiet`                     | `-q`  | `quiet`                 | Suppress all console output below ERROR level. Overrides `-v`.                                                                                                          | `False`            |
 | `--log-file PATH`             |       | `log_file`              | Path to a file for detailed logging. All logs (including DEBUG level) will be written here, regardless of console verbosity.                                           | `None`             |
@@ -242,7 +242,7 @@ default:
   ignore_errors: false      # Set to true to include files with read errors (content will be null)
 
   # UI/UX settings
-  clipboard: true           # false to disable copying; if true, copies stdout content or output file's full path to clipboard
+  clipboard: true           # false to disable copying; if true, copies stdout content or output file's directory path to clipboard
   verbose: 0                # Console verbosity: 0 (Warning), 1 (Info), 2 (Debug)
   quiet: false              # Suppress console output below ERROR, overrides verbose
   # log_file: "dirdigest.log" # Optional: path for detailed file logging (always DEBUG level)

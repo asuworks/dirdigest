@@ -397,29 +397,30 @@ def main_cli(
         clipboard_log_message = "CLI: Clipboard processing initiated."
 
         if final_output_path and output_generation_succeeded:
-            # Path to be copied is the full path to the output FILE.
+            # Path to be copied is the DIRECTORY containing the output file.
             abs_output_file_path = final_output_path.resolve()
-            path_str_for_clipboard = str(abs_output_file_path) # This is the Linux/local file path string
+            target_dir_to_copy_obj = abs_output_file_path.parent
+            path_str_for_clipboard = str(target_dir_to_copy_obj)  # This is the Linux/local directory path string
 
             if is_running_in_wsl():
                 log.debug(
-                    f"CLI: Detected WSL environment. Attempting conversion for output file path: {path_str_for_clipboard}"
+                    f"CLI: Detected WSL environment. Attempting conversion for directory path: {path_str_for_clipboard}"
                 )
-                # Pass the Linux/local FILE path for conversion
-                windows_file_path = convert_wsl_path_to_windows(path_str_for_clipboard)
-                if windows_file_path:
-                    path_str_for_clipboard = windows_file_path # Update to the converted Windows file path
-                    clipboard_log_message = f"CLI: Copied WSL-converted output file path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+                # Pass the Linux/local DIRECTORY path for conversion
+                windows_dir_path = convert_wsl_path_to_windows(path_str_for_clipboard)
+                if windows_dir_path:
+                    path_str_for_clipboard = windows_dir_path  # Update to the converted Windows directory path
+                    clipboard_log_message = f"CLI: Copied WSL-converted output directory path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
                 else:
-                    # Conversion failed, path_str_for_clipboard remains the Linux/local file path
+                    # Conversion failed, path_str_for_clipboard remains the Linux/local directory path
                     log.warning(
-                        f"CLI: Failed to convert WSL path for output file '{abs_output_file_path}'. Copying original file path instead."
+                        f"CLI: Failed to convert WSL path for output directory '{target_dir_to_copy_obj}'. Copying original directory path instead."
                     )
-                    clipboard_log_message = f"CLI: Copied output file path (original, WSL conversion failed) to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
-            else: # Not in WSL
-                # path_str_for_clipboard is already the Linux/local file path
+                    clipboard_log_message = f"CLI: Copied output directory path (original, WSL conversion failed) to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+            else:  # Not in WSL
+                # path_str_for_clipboard is already the Linux/local directory path
                 clipboard_log_message = (
-                    f"CLI: Copied output file path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+                    f"CLI: Copied output directory path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
                 )
 
             text_to_copy = path_str_for_clipboard
