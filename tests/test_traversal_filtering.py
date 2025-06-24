@@ -54,7 +54,7 @@ def test_basic_traversal_simple_project_default_ignores(runner: CliRunner, temp_
     json_output_str = ""
     try:
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"])
+            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "-o", "-", "--no-clipboard"])
             if mock_rich_print.call_args_list:
                 full_output_parts = []
                 for call_obj in mock_rich_print.call_args_list:
@@ -85,7 +85,7 @@ def test_default_ignores_complex_project(runner: CliRunner, temp_test_dir: Path)
     json_output_str = ""
     try:
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"])
+            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "-o", "-", "--no-clipboard"])
             if mock_rich_print.call_args_list:
                 full_output_parts = []
                 for call_obj in mock_rich_print.call_args_list:
@@ -147,7 +147,7 @@ def test_no_default_ignore_flag(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--no-default-ignore", "--no-clipboard"],
+                [".", "--format", "json", "--no-default-ignore", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 full_output_parts = []
@@ -193,7 +193,7 @@ def test_hidden_files_default_exclusion(runner: CliRunner, temp_test_dir: Path):
     json_output_str = ""
     try:
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"])
+            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "-o", "-", "--no-clipboard"])
             if mock_rich_print.call_args_list:
                 full_output_parts = []
                 for call_obj in mock_rich_print.call_args_list:
@@ -225,7 +225,7 @@ def test_hidden_files_included_with_no_default_ignore(runner: CliRunner, temp_te
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--no-default-ignore", "--no-clipboard"],
+                [".", "--format", "json", "--no-default-ignore", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 full_output_parts = []
@@ -265,7 +265,7 @@ def test_max_depth_zero(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--max-depth", "0", "--no-clipboard"],
+                [".", "--format", "json", "--max-depth", "0", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -291,7 +291,7 @@ def test_max_depth_one(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--max-depth", "1", "--no-clipboard"],
+                [".", "--format", "json", "--max-depth", "1", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -328,7 +328,7 @@ def test_include_specific_file_type(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--include", "*.py", "--no-clipboard"],
+                [".", "--format", "json", "--include", "*.py", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -363,7 +363,7 @@ def test_include_specific_directory(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--include", "src/", "--no-clipboard"],
+                [".", "--format", "json", "--include", "src/", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -394,7 +394,7 @@ def test_exclude_specific_file_type(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--exclude", "*.md", "--no-clipboard"],
+                [".", "--format", "json", "--exclude", "*.md", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -425,7 +425,7 @@ def test_exclude_specific_directory(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--exclude", "tests/", "--no-clipboard"],
+                [".", "--format", "json", "--exclude", "tests/", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -464,6 +464,8 @@ def test_exclude_overrides_include(runner: CliRunner, temp_test_dir: Path):
                     "*.md",
                     "--exclude",
                     "docs/index.md",
+                    "-o",
+                    "-",
                     "--no-clipboard",
                 ],
             )
@@ -495,7 +497,7 @@ def test_symlinks_not_followed_by_default(runner: CliRunner, temp_test_dir: Path
     json_output_str = ""
     try:
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"])
+            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "-o", "-", "--no-clipboard"])
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
     finally:
@@ -521,7 +523,7 @@ def test_symlinks_followed_with_flag(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--follow-symlinks", "--no-clipboard"],
+                [".", "--format", "json", "--follow-symlinks", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -553,7 +555,7 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
         # Case 1: Default (no follow, no ignore errors)
         json_output_str_no_follow = ""
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print_nf:
-            result_nf = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"])
+            result_nf = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "-o", "-", "--no-clipboard"])
             if mock_rich_print_nf.call_args_list:
                 json_output_str_no_follow = "".join(
                     str(call.args[0]) for call in mock_rich_print_nf.call_args_list if call.args
@@ -567,7 +569,7 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print_f:
             result_f = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--follow-symlinks", "--no-clipboard"],
+                [".", "--format", "json", "--follow-symlinks", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print_f.call_args_list:
                 json_output_str_follow = "".join(
@@ -575,7 +577,7 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
                 )
         assert result_f.exit_code == 0
         included_f = get_included_files_from_json(json_output_str_follow)
-        assert "broken_link" not in included_f
+        assert "broken_link" not in included_f  # Should be excluded because it's broken and errors not ignored
 
         # Case 3: Follow symlinks, WITH ignore errors
         json_output_str_follow_ignore = ""
@@ -588,6 +590,8 @@ def test_broken_symlinks_handling(runner: CliRunner, temp_test_dir: Path):
                     "json",
                     "--follow-symlinks",
                     "--ignore-errors",
+                    "-o",
+                    "-",
                     "--no-clipboard",
                 ],
             )

@@ -28,3 +28,4 @@ build/
 .env
 
 .tool-versions
+.direnv/
