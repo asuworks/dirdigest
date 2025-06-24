@@ -49,7 +49,10 @@ from dirdigest.utils.tokens import approximate_token_count
     "-o",
     type=click.Path(dir_okay=False, writable=True, path_type=pathlib.Path),
     default=None,
-    help="Path to the output file. If omitted, the digest is written to standard output (stdout).",
+    help=(
+        "Path to the output file. If omitted, defaults to '<TARGET_DIR_NAME>-digest.md' "
+        "in the target directory. Use '-' for stdout."
+    ),
 )
 @click.option(
     "--format",
@@ -208,9 +211,25 @@ def main_cli(
             )
             final_directory = directory_arg
 
-    final_output_path = final_settings.get("output", output)
-    if isinstance(final_output_path, str):
-        final_output_path = pathlib.Path(final_output_path)
+    final_output_path_str_or_path = final_settings.get("output", output) # Could be string from config, or Path from CLI
+    final_output_path: pathlib.Path | None = None # Initialize
+
+    if final_output_path_str_or_path is None:
+        # New default: <DIR NAME>-digest.md
+        # final_directory is already a Path object here
+        dir_name = final_directory.resolve().name
+        final_output_path = final_directory.resolve() / f"{dir_name}-digest.md"
+        log.info(f"CLI: No output file specified, defaulting to: [log.path]{final_output_path}[/log.path]")
+    elif str(final_output_path_str_or_path) == "-":
+        final_output_path = None # Explicitly signifies stdout
+        log.info("CLI: Outputting to stdout as requested by '-'")
+    else:
+        if isinstance(final_output_path_str_or_path, str):
+            final_output_path = pathlib.Path(final_output_path_str_or_path)
+        else: # Already a Path object
+            final_output_path = final_output_path_str_or_path
+        # Resolve to make it absolute if it's relative, for consistent logging and exclusion
+        # final_output_path = final_output_path.resolve() # Resolving early might be problematic if parent doesn't exist yet
 
     final_format = final_settings.get("format", format)
     final_include = final_settings.get("include", include if include else [])
@@ -254,11 +273,11 @@ def main_cli(
         effective_sort_keys = list(final_sort_output_log_by)
 
     log.debug(f"CLI: Final effective settings after merge: {final_settings}")
-    log.info(f"CLI: Processing directory: [log.path]{final_directory}[/log.path]")
+    log.info(f"CLI: Processing directory: [log.path]{final_directory.resolve()}[/log.path]") # Log resolved path
     if final_output_path:
-        log.info(f"CLI: Output will be written to: [log.path]{final_output_path}[/log.path]")
-    else:
-        log.info("CLI: Output will be written to stdout")
+        # Resolve the path for consistent logging, especially if it was the default relative path
+        log.info(f"CLI: Output will be written to: [log.path]{final_output_path.resolve()}[/log.path]")
+    # else: stdout case is already logged when final_output_path is set
     log.info(f"CLI: Format: {final_format.upper()}")
     log.info(f"CLI: Sorting item log by: {effective_sort_keys}")  # Log effective sort keys
 
@@ -378,30 +397,29 @@ def main_cli(
         clipboard_log_message = "CLI: Clipboard processing initiated."
 
         if final_output_path and output_generation_succeeded:
-            # Path to be copied is the DIRECTORY containing the output file.
+            # Path to be copied is the full path to the output FILE.
             abs_output_file_path = final_output_path.resolve()
-            target_dir_to_copy_obj = abs_output_file_path.parent
-            path_str_for_clipboard = str(target_dir_to_copy_obj)  # This is the Linux/local directory path string
+            path_str_for_clipboard = str(abs_output_file_path) # This is the Linux/local file path string
 
             if is_running_in_wsl():
                 log.debug(
-                    f"CLI: Detected WSL environment. Attempting conversion for directory path: {path_str_for_clipboard}"
+                    f"CLI: Detected WSL environment. Attempting conversion for output file path: {path_str_for_clipboard}"
                 )
-                # Pass the Linux/local DIRECTORY path for conversion
-                windows_dir_path = convert_wsl_path_to_windows(path_str_for_clipboard)
-                if windows_dir_path:
-                    path_str_for_clipboard = windows_dir_path  # Update to the converted Windows directory path
-                    clipboard_log_message = f"CLI: Copied WSL-converted output directory path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+                # Pass the Linux/local FILE path for conversion
+                windows_file_path = convert_wsl_path_to_windows(path_str_for_clipboard)
+                if windows_file_path:
+                    path_str_for_clipboard = windows_file_path # Update to the converted Windows file path
+                    clipboard_log_message = f"CLI: Copied WSL-converted output file path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
                 else:
-                    # Conversion failed, path_str_for_clipboard remains the Linux/local directory path
+                    # Conversion failed, path_str_for_clipboard remains the Linux/local file path
                     log.warning(
-                        f"CLI: Failed to convert WSL path for output directory '{target_dir_to_copy_obj}'. Copying original directory path instead."
+                        f"CLI: Failed to convert WSL path for output file '{abs_output_file_path}'. Copying original file path instead."
                     )
-                    clipboard_log_message = f"CLI: Copied output directory path (original, WSL conversion failed) to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
-            else:  # Not in WSL
-                # path_str_for_clipboard is already the Linux/local directory path
+                    clipboard_log_message = f"CLI: Copied output file path (original, WSL conversion failed) to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+            else: # Not in WSL
+                # path_str_for_clipboard is already the Linux/local file path
                 clipboard_log_message = (
-                    f"CLI: Copied output directory path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
+                    f"CLI: Copied output file path to clipboard: [log.path]{path_str_for_clipboard}[/log.path]"
                 )
 
             text_to_copy = path_str_for_clipboard
