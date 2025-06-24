@@ -175,7 +175,7 @@ def test_markdown_output_basic_structure_simple_project(runner: CliRunner, temp_
     markdown_output = ""
     try:
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "markdown", "--no-clipboard"])
+            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "markdown", "-o", "-", "--no-clipboard"])
             if mock_rich_print.call_args_list:
                 markdown_output = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
     finally:
@@ -214,7 +214,7 @@ def test_markdown_directory_structure_visualization_complex(runner: CliRunner, t
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "markdown", "--max-depth", "3", "--no-clipboard"],
+                [".", "--format", "markdown", "--max-depth", "3", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 markdown_output = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -261,7 +261,7 @@ def test_markdown_code_block_language_hints(runner: CliRunner, temp_test_dir: Pa
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "markdown", "--no-default-ignore", "--no-clipboard"],
+                [".", "--format", "markdown", "--no-default-ignore", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 markdown_output = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -331,6 +331,8 @@ def test_markdown_file_with_read_error(runner: CliRunner, temp_test_dir: Path):
                     "markdown",
                     "--ignore-errors",
                     "--no-default-ignore",
+                    "-o",
+                    "-",
                     "--no-clipboard",
                 ],
             )
@@ -358,7 +360,7 @@ def test_json_output_metadata_and_root_structure(runner: CliRunner, temp_test_di
     json_output_str = ""
     try:
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "--no-clipboard"])
+            result = runner.invoke(dirdigest_cli.main_cli, [".", "--format", "json", "-o", "-", "--no-clipboard"])
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
     finally:
@@ -382,8 +384,9 @@ def test_json_output_metadata_and_root_structure(runner: CliRunner, temp_test_di
     assert isinstance(metadata["excluded_items_count"], int)
     assert isinstance(metadata["total_content_size_kb"], (float, int))
     # In simple_project, there are no default ignored files, so excluded count should be 0.
+    # Plus one for the auto-excluded output file if we weren't using "-o -"
     assert metadata["included_files_count"] == 3
-    assert metadata["excluded_items_count"] == 0
+    assert metadata["excluded_items_count"] == 0 # No auto-exclude for stdout
 
     assert "root" in data
     root_node = data["root"]

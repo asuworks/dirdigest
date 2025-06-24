@@ -56,7 +56,8 @@ def test_cli_basic_invocation_no_args(runner: CliRunner, temp_test_dir):
     Output is captured by mocking the Rich console's print method.
     """
     with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
-        result = runner.invoke(dirdigest_cli.main_cli)
+            # Invoke with '-o -' to force output to stdout for this test
+            result = runner.invoke(dirdigest_cli.main_cli, ["-o", "-"])
 
         assert result.exit_code == 0, f"CLI failed with output:\n{result.output}\nStderr:\n{result.stderr}"
 
@@ -232,9 +233,18 @@ def test_cli_exclude_option_parsing_comma_separated(
     mock_process_dir.assert_called_once()
     kwargs = mock_process_dir.call_args.kwargs
 
+        # The default output file is now also excluded.
+        # e.g., simple_project-digest.md or similar based on temp_test_dir.name
+        # We need to check for the presence of the original patterns and that the count is now 3.
     assert "*.log" in kwargs["exclude_patterns"]
     assert "tmp/" in kwargs["exclude_patterns"]
-    assert len(kwargs["exclude_patterns"]) == 2
+        # Check that a generated filename like <dirname>-digest.md is also in excludes
+        auto_excluded_output_file_found = any(
+            f"{temp_test_dir.name}-digest.md" in pattern for pattern in kwargs["exclude_patterns"]
+        )
+        assert auto_excluded_output_file_found, \
+            f"Default output file pattern not found in excludes: {kwargs['exclude_patterns']}"
+        assert len(kwargs["exclude_patterns"]) == 3
 
 
 @mock.patch("dirdigest.core.process_directory_recursive")
@@ -443,8 +453,18 @@ def test_cli_clipboard_copies_content_when_no_output_file(
     mock_pyperclip_copy.assert_called_once()
     copied_text = mock_pyperclip_copy.call_args[0][0]
 
-    assert copied_text == captured_stdout_content
-    assert "# Directory Digest" in copied_text
-    assert "file1.txt" in copied_text
-    assert "sub_dir1/script.py" in copied_text
-    assert copied_text.endswith("\n")
+        # With default output to file, the clipboard should get the directory path of the output file.
+        # The output file will be in the temp_test_dir, named like <temp_test_dir_name>-digest.md
+        # So, the copied path should be the path to temp_test_dir.
+        # If running in WSL, it will be the WSL-converted path.
+        expected_copied_path_str = str(temp_test_dir.resolve())
+        if dirdigest_cli.is_running_in_wsl():
+            converted_path = dirdigest_cli.convert_wsl_path_to_windows(expected_copied_path_str)
+            if converted_path: # Conversion might fail if wslpath is not available or path is unusual
+                expected_copied_path_str = converted_path
+
+        assert copied_text == expected_copied_path_str, \
+            f"Expected clipboard to contain dir path '{expected_copied_path_str}', but got '{copied_text}'"
+
+        # To test content copying, a separate test with "-o -" would be needed.
+        # This test now verifies the default behavior (output to file, dir path to clipboard).
