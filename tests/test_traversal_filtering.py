@@ -319,7 +319,8 @@ def test_max_depth_one(runner: CliRunner, temp_test_dir: Path):
 def test_include_specific_file_type(runner: CliRunner, temp_test_dir: Path):
     """
     Test ID: FTF-004 (Conceptual)
-    Description: Verifies that '--include *.py' includes only Python files.
+    Description: Verifies that '--include **/*.py' includes only Python files at any depth.
+    Uses **/*.py (recursive glob) since *.py only matches root-level files per POSIX spec.
     """
     original_cwd = os.getcwd()
     os.chdir(temp_test_dir)
@@ -328,7 +329,7 @@ def test_include_specific_file_type(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--include", "*.py", "-o", "-", "--no-clipboard"],
+                [".", "--format", "json", "--include", "**/*.py", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -385,7 +386,8 @@ def test_include_specific_directory(runner: CliRunner, temp_test_dir: Path):
 def test_exclude_specific_file_type(runner: CliRunner, temp_test_dir: Path):
     """
     Test ID: FTF-006 (Conceptual)
-    Description: Verifies that '--exclude *.md' excludes all Markdown files.
+    Description: Verifies that '--exclude **/*.md' excludes all Markdown files at any depth.
+    Uses **/*.md (recursive glob) since *.md only matches root-level files per POSIX spec.
     """
     original_cwd = os.getcwd()
     os.chdir(temp_test_dir)
@@ -394,7 +396,7 @@ def test_exclude_specific_file_type(runner: CliRunner, temp_test_dir: Path):
         with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
             result = runner.invoke(
                 dirdigest_cli.main_cli,
-                [".", "--format", "json", "--exclude", "*.md", "-o", "-", "--no-clipboard"],
+                [".", "--format", "json", "--exclude", "**/*.md", "-o", "-", "--no-clipboard"],
             )
             if mock_rich_print.call_args_list:
                 json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
@@ -446,8 +448,9 @@ def test_exclude_specific_directory(runner: CliRunner, temp_test_dir: Path):
 def test_exclude_overrides_include(runner: CliRunner, temp_test_dir: Path):
     """
     Test ID: FTF-008 (Conceptual)
-    Description: Verifies --exclude takes precedence over --include.
-    Include '*.md' but exclude 'docs/index.md'.
+    Description: Verifies --exclude takes precedence over --include when specificity is equal or higher.
+    Include '**/*.md' (all .md files recursively) but exclude 'docs/index.md' (specific file).
+    The exclude pattern is more specific (anchored path vs glob), so it wins.
     """
     original_cwd = os.getcwd()
     os.chdir(temp_test_dir)
@@ -461,7 +464,7 @@ def test_exclude_overrides_include(runner: CliRunner, temp_test_dir: Path):
                     "--format",
                     "json",
                     "--include",
-                    "*.md",
+                    "**/*.md",
                     "--exclude",
                     "docs/index.md",
                     "-o",
@@ -539,6 +542,129 @@ def test_symlinks_followed_with_flag(runner: CliRunner, temp_test_dir: Path):
         "link_to_dir/file_in_actual_dir.txt",
     }
     assert included_files == expected_files
+
+
+@pytest.mark.parametrize("temp_test_dir", ["complex_project"], indirect=True)
+def test_file_include_beats_folder_exclude_targeting_distance(runner: CliRunner, temp_test_dir: Path):
+    """
+    Test ID: FTF-016 (Targeting Distance)
+    Description: With targeting distance, -i '**/*.py' (distance 0 for files) beats
+    -x 'tests/' (distance 1) for .py files inside tests/. This is a spec change.
+    """
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
+    json_output_str = ""
+    try:
+        with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli,
+                [".", "--format", "json", "--include", "**/*.py", "--exclude", "tests/", "-o", "-", "--no-clipboard"],
+            )
+            if mock_rich_print.call_args_list:
+                json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
+    finally:
+        os.chdir(original_cwd)
+
+    assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+    included_files = get_included_files_from_json(json_output_str)
+
+    # All .py files should be included, even in tests/ (distance 0 beats distance 1)
+    expected_py_files = {
+        "src/main.py",
+        "src/utils.py",
+        "src/feature/module.py",
+        "tests/test_main.py",
+        "tests/test_utils.py",
+    }
+    assert included_files == expected_py_files
+
+
+@pytest.mark.parametrize("temp_test_dir", ["complex_project"], indirect=True)
+def test_folder_exclude_with_targeted_file_exclude(runner: CliRunner, temp_test_dir: Path):
+    """
+    Test ID: FTF-017 (Targeting Distance)
+    Description: To exclude .py in tests/ with targeting distance, use -x 'tests/**/*.py'
+    which matches at distance 0 (same as the include), and exclude wins ties.
+    """
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
+    json_output_str = ""
+    try:
+        with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli,
+                [
+                    ".",
+                    "--format",
+                    "json",
+                    "--include",
+                    "**/*.py",
+                    "--exclude",
+                    "tests/**/*.py",
+                    "-o",
+                    "-",
+                    "--no-clipboard",
+                ],
+            )
+            if mock_rich_print.call_args_list:
+                json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
+    finally:
+        os.chdir(original_cwd)
+
+    assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+    included_files = get_included_files_from_json(json_output_str)
+
+    # .py files in src/ included, .py files in tests/ excluded by targeted pattern
+    expected_py_files = {
+        "src/main.py",
+        "src/utils.py",
+        "src/feature/module.py",
+    }
+    assert included_files == expected_py_files
+    assert "tests/test_main.py" not in included_files
+
+
+@pytest.mark.parametrize("temp_test_dir", ["complex_project"], indirect=True)
+def test_include_dir_exclude_subdir(runner: CliRunner, temp_test_dir: Path):
+    """
+    Test ID: FTF-018 (Targeting Distance)
+    Description: -i 'src/' -x '**/feature/' should include src/ files but exclude
+    files in src/feature/ (the subfolder exclude is closer to the target).
+    """
+    original_cwd = os.getcwd()
+    os.chdir(temp_test_dir)
+    json_output_str = ""
+    try:
+        with mock.patch("dirdigest.utils.logger.stdout_console.print") as mock_rich_print:
+            result = runner.invoke(
+                dirdigest_cli.main_cli,
+                [
+                    ".",
+                    "--format",
+                    "json",
+                    "--include",
+                    "src/",
+                    "--exclude",
+                    "**/feature/",
+                    "-o",
+                    "-",
+                    "--no-clipboard",
+                ],
+            )
+            if mock_rich_print.call_args_list:
+                json_output_str = "".join(str(call.args[0]) for call in mock_rich_print.call_args_list if call.args)
+    finally:
+        os.chdir(original_cwd)
+
+    assert result.exit_code == 0, f"CLI failed. Stderr: {result.stderr}"
+    included_files = get_included_files_from_json(json_output_str)
+
+    expected_files = {
+        "src/main.py",
+        "src/utils.py",
+    }
+    assert included_files == expected_files
+    assert "src/feature/module.py" not in included_files
 
 
 @pytest.mark.parametrize("temp_test_dir", ["symlink_dir"], indirect=True)

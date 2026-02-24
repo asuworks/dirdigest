@@ -17,24 +17,40 @@
 *   **Symlink Support:** Choose whether to follow symbolic links.
 *   **Logging:** Controllable verbosity for console output, option to log detailed information to a file, and sortable processing logs.
 
+## TLDR;
+
+**dirdigest** — CLI tool that recursively scans a directory and outputs a structured digest (Markdown or JSON) of its contents.
+Useful for feeding project context to LLMs, documentation, or code reviews. Just run dirdigest in any project folder.
+Configurable via .dirdigest YAML file. Copies output path to clipboard by default.
+Pattern matching works in 3 moves:
+
+- Scope — pick what's in: `dirdigest -i './src/'`
+- Carve — cut what's out: `dirdigest -i './src/' -x '**/tests/'`
+- Cherry-pick — add back exceptions: `dirdigest -i './src/' -x '**/tests/' -i '**/test_main.py'`
+
+When patterns conflict, the most specific one wins — a file pattern beats a folder pattern. Preview with --dry-run before committing.
+
+
 ## Table of Contents
 
-- [Installation](#installation)
-  - [For Development (from Source)](#for-development-from-source)
-  - [System-Wide Installation (Making `dirdigest` command available globally)](#system-wide-installation-making-dirdigest-command-available-globally)
-- [Quick Start](#quick-start)
-- [CLI Usage Guide](#cli-usage-guide)
-  - [Synopsis](#synopsis)
-  - [Argument](#argument)
-  - [Options and Configuration Keys](#options-and-configuration-keys)
-- [Configuration File (`.dirdigest`)](#configuration-file-dirdigest)
-  - [Format and Location](#format-and-location)
-  - [Example Configuration](#example-configuration)
-- [Use Case Examples](#use-case-examples)
-- [Understanding the Verbose Output Log](#understanding-the-verbose-output-log)
-- [Development Setup](#development-setup)
-- [Contributing](#contributing)
-- [License](#license)
+- [dirdigest: Directory Digest Generator](#dirdigest-directory-digest-generator)
+  - [TLDR;](#tldr)
+  - [Table of Contents](#table-of-contents)
+  - [Installation](#installation)
+    - [For Development (from Source)](#for-development-from-source)
+    - [System-Wide Installation (Making `dirdigest` command available globally)](#system-wide-installation-making-dirdigest-command-available-globally)
+  - [Quick Start](#quick-start)
+  - [Smart Pattern Matching](#smart-pattern-matching)
+  - [CLI Usage Guide](#cli-usage-guide)
+    - [Synopsis](#synopsis)
+    - [Argument](#argument)
+    - [Options and Configuration Keys](#options-and-configuration-keys)
+  - [Configuration File (`.dirdigest`)](#configuration-file-dirdigest)
+    - [Format and Location](#format-and-location)
+    - [Example Configuration](#example-configuration)
+  - [Development Setup](#development-setup)
+  - [Contributing](#contributing)
+  - [License](#license)
 
 ## Installation
 
@@ -105,6 +121,47 @@ To get a JSON output:
 dirdigest . -f json -o project_data.json
 ```
 
+## Smart Pattern Matching
+
+You have 3 moves:
+
+**1. Scope/Include (-i)** — pick what's in
+```bash
+dirdigest -i './src/'
+```
+
+**2. Carve/Exclude (-x)** — cut what's out
+```bash
+dirdigest -i './src/' -x '**/tests/'
+```
+
+**3. Cherry-pick** — add back the exception
+```bash
+dirdigest -i './src/' -x '**/tests/' -i '**/test_main.py'
+```
+
+That's it. When patterns conflict, the one that names the file most directly wins. `**/test_main.py` names the file — beats `tests/` which only names the folder.
+
+To exclude files by type inside a folder, name the files:
+```bash
+-x 'tests/**/*.py'    # excludes .py files in tests/
+-x 'tests/'           # excludes the folder (but file patterns still match inside)
+```
+
+**Quick patterns:**
+```
+**/*.py     all Python files, any depth
+*.py        Python files at root only
+./src/      root src/ folder (anchored)
+src/        any src/ folder (anywhere)
+config.py   a specific file
+```
+
+**Preview before running:**
+```bash
+dirdigest --dry-run -i '**/*.py' -x 'tests/'
+```
+
 ## CLI Usage Guide
 
 ### Synopsis
@@ -152,10 +209,11 @@ The following table lists the command-line options and their corresponding keys 
 **Glob Pattern Details (`--include`, `--exclude`):**
 
 *   Patterns are applied to relative paths from the base directory.
-*   Use standard glob syntax (e.g., `*.py`, `src/**/`, `data/*.csv`).
-*   To match a directory specifically, ensure the pattern ends with a `/` (e.g., `docs/`).
+*   Trailing `/` means folder pattern (e.g., `docs/`), no slash means file pattern (e.g., `*.py`).
+*   `./` prefix anchors to the project root; bare patterns use suffix matching at any depth.
+*   `*` matches within one directory level, `**` matches across levels, `?` matches one character.
 *   Multiple patterns can be supplied by using the option multiple times (e.g., `-i '*.py' -i '*.md'`) or by providing a comma-separated list (e.g., `-x '*.log,tmp/,build/'`).
-*   Exclusion patterns take precedence over inclusion patterns.
+*   When `-i` and `-x` conflict, the pattern that most directly targets the path wins. See [Smart Pattern Matching](#smart-pattern-matching) for details.
 *   Default ignore patterns are applied *in addition* to user-specified excludes unless `--no-default-ignore` is set. These include common VCS directories (`.git/`), build artifacts (`build/`, `dist/`, `__pycache__/`, `node_modules/`), hidden files/directories (`.*`), and common binary/media file extensions.
 
 ## Configuration File (`.dirdigest`)
@@ -249,136 +307,6 @@ default:
 
   # Sort the verbose processing log. Keys: 'status', 'size', 'path'
   # sort_output_log_by: ["status", "path"]
-```
-
-## Use Case Examples
-0. **Generate a digest of dirdigest folder, and save it:**
-    ```bash
-    dirdigest . -o digest.md -x "tests/,*.egg-info/,digest.md,uv.lock,.idea/" -c
-    ```
-
-1.  **Generate a Markdown summary of your current project, excluding tests and virtual environments, and save it:**
-    ```bash
-    dirdigest . -o project_summary.md -x "tests/,*.venv/,env/"
-    ```
-
-2.  **Create a JSON digest of a specific directory (`src/`) including only Python files, with a max depth of 2, and disable default ignores to include hidden Python files (e.g. `._internal.py`):**
-    ```bash
-    dirdigest src/ -f json --include "*.py" --max-depth 2 --no-default-ignore -o src_python_digest.json
-    ```
-
-3.  **Digest a large repository, focusing on source code, limiting file size to 100KB, and ignoring binary/media files explicitly, output to clipboard:**
-    ```bash
-    dirdigest /path/to/large_repo \
-        --include "*.c,*.h,*.py,*.js,Makefile,README*" \
-        --exclude "*.so,*.o,*.a,*.jpg,*.png,*.mp4,docs/" \
-        --max-size 100 \
-        --no-clipboard # (If you want to manually copy from stdout)
-    ```
-    (By default, clipboard is on, so `--no-clipboard` is only if you *don't* want it on the clipboard.)
-
-4.  **Use a project-specific `.dirdigest` file for common settings:**
-    Create a `.dirdigest` file in your project root:
-    ```yaml
-    # my_project/.dirdigest
-    default:
-      exclude:
-        - "dist/"
-        - "build/"
-        - "node_modules/"
-        - ".DS_Store"
-        - "*.pyc"
-      include:
-        - "src/**/*.js"
-        - "public/"
-      max_size: 500
-      format: markdown
-    ```
-    Then simply run from the project root:
-    ```bash
-    dirdigest -o web_app_digest.md
-    ```
-    This will use settings from `.dirdigest` and save to `web_app_digest.md`.
-
-5.  **Include a specific hidden file (e.g., `.envrc`) while keeping most default ignores active (this is tricky):**
-    The most straightforward way to include a specific hidden file that would normally be ignored by `.*` or other hidden-file logic is to use `--no-default-ignore` and then explicitly include what you want, and explicitly exclude what you *don't* want from the usual defaults.
-    ```bash
-    dirdigest . --no-default-ignore \
-        --include ".envrc,src/*.py,README.md" \
-        --exclude ".git/,__pycache__/,*.log,node_modules/" \
-        -o my_app_context.md
-    ```
-    This gives you fine-grained control when default behaviors for hidden files conflict with your needs.
-
-6.  **Troubleshoot which files are being processed or ignored with verbose logging:**
-    ```bash
-    dirdigest . -vv --log-file processing_details.log
-    ```
-    Check `processing_details.log` for detailed DEBUG messages about each file and directory encountered.
-
-7. **Inspect processing order with custom sorting:**
-   To understand why certain files are included or excluded, use verbose logging and sort by path for a straightforward alphabetical view.
-   ```bash
-   dirdigest . -v --sort-output-log-by path
-   ```
-
-## Understanding the Verbose Output Log
-
-When you use `-v` (INFO) or `-vv` (DEBUG) flags, `dirdigest` provides a detailed log of each file and folder it processes. This log has been enhanced:
-
-*   **Item Sizes:** Each logged file and folder now displays its size in kilobytes (KB). For folders, this size represents the total sum of all included files within that folder and its subfolders.
-    *   Example: `[log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 2.52KB)`
-    *   Example: `[log.included]Included folder[/log.included]: [log.path]src/[/log.path] (Size: 120.75KB)`
-*   **Default Sorting:** By default, this verbose log output is sorted to group excluded items before included items.
-    *   Within each status group (excluded/included), folders are listed first (alphabetically), followed by files (sorted by size descending, then path).
-*   **Headers:** When sorted by `status` or `size`, headers are printed:
-    *   `--- EXCLUDED ITEMS ---` (style: bold yellow)
-    *   `--- INCLUDED ITEMS ---` (style: bold green)
-*   **Custom Sorting with `--sort-output-log-by`:**
-    *   Use this option to change the sort order of the verbose log.
-    *   Valid keys:
-        *   `status`: Groups by status (excluded items first, then included, then errors).
-        *   `size`: Sorts by size in descending order (largest first).
-        *   `path`: Sorts alphabetically by relative path.
-    *   You can specify multiple keys for hierarchical sorting. For example, `--sort-output-log-by status --sort-output-log-by size` is the default.
-    *   If you sort *only* by `path` (e.g., `dirdigest . -v --sort-output-log-by path`), the "EXCLUDED ITEMS" and "INCLUDED ITEMS" headers will not be shown, and all items will be listed in a single block sorted by path.
-*   **YAML Configuration for Sorting:** You can set default sort keys in your `.dirdigest` file:
-    ```yaml
-    # .dirdigest
-    default:
-      # ... other settings ...
-      sort_output_log_by: ["path"] # Example: make path-only sort the default
-    ```
-
-**Example Verbose Output (default sort):**
-```
-$ dirdigest . -v
-INFO     : Processing directory: .
-INFO     : Output will be written to stdout
-INFO     : Format: MARKDOWN
-INFO     : Sorting item log by: ['status', 'size']
-INFO     : [bold yellow]--- EXCLUDED ITEMS ---[/bold yellow]
-INFO     : [log.excluded]Excluded folder[/log.excluded]: [log.path].git[/log.path] ([log.reason]Is a hidden directory[/log.reason]) (Size: 15.30KB)
-INFO     : [log.excluded]Excluded file[/log.excluded]: [log.path]app.log[/log.path] ([log.reason]Matches default ignore pattern[/log.reason]) (Size: 12.40KB)
-INFO     : [log.excluded]Excluded file[/log.excluded]: [log.path].env[/log.path] ([log.reason]Is a hidden file[/log.reason]) (Size: 0.02KB)
-INFO     : [bold green]--- INCLUDED ITEMS ---[/bold green]
-INFO     : [log.included]Included folder[/log.included]: [log.path]data[/log.path] (Size: 20.10KB)
-INFO     : [log.included]Included folder[/log.included]: [log.path]src[/log.path] (Size: 8.75KB)
-INFO     : [log.included]Included file[/log.included]: [log.path]data/big_file.dat[/log.path] (Size: 20.00KB)
-INFO     : [log.included]Included file[/log.included]: [log.path]src/main.py[/log.path] (Size: 5.50KB)
-INFO     : [log.included]Included file[/log.included]: [log.path]README.md[/log.path] (Size: 2.00KB)
-INFO     : [log.included]Included file[/log.included]: [log.path]src/utils.py[/log.path] (Size: 1.25KB)
-INFO     : [log.included]Included file[/log.included]: [log.path]data/small_file.txt[/log.path] (Size: 0.10KB)
-INFO     : Building digest tree...
-# Directory Digest: /path/to/your/project
-... (rest of Markdown output) ...
-INFO     : ------------------------------ SUMMARY ------------------------------
-INFO     : Total files included: 4
-INFO     : Total items excluded (files/dirs): 3
-INFO     : Total content size: 28.85 KB
-INFO     : Approx. Token Count: ...
-INFO     : Execution time: ... seconds
-INFO     : -------------------------------------------------------------------
 ```
 
 ## Development Setup

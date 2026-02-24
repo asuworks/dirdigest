@@ -5,7 +5,14 @@ from typing import Any, Dict, Generator, Iterator, List, Tuple
 
 from dirdigest.constants import DEFAULT_IGNORE_PATTERNS
 from dirdigest.utils.logger import logger  # Import the configured logger
-from dirdigest.utils.patterns import is_path_hidden, matches_patterns
+from dirdigest.utils.patterns import (
+    ParsedPattern,
+    compute_targeting_distance,
+    is_path_hidden,
+    matches_path,
+    matches_patterns,
+    parse_pattern,
+)
 
 # Type hints for clarity
 LogEvent = Dict[str, Any]  # Added type hint for log events
@@ -34,6 +41,86 @@ def _get_dir_size(dir_path_obj: pathlib.Path, follow_symlinks: bool) -> float:
     return round(total_size_bytes / 1024, 3)
 
 
+def resolve_pattern_conflicts(
+    rel_path: str,
+    is_dir: bool,
+    include_parsed: list[ParsedPattern],
+    exclude_parsed: list[ParsedPattern],
+) -> tuple[bool, str]:
+    """Determine if a path should be included based on specificity.
+
+    Compares matching include and exclude patterns, resolving conflicts
+    by specificity rank (lower = more specific = wins). On tie, exclude wins.
+
+    This function only handles user-specified -i and -x patterns.
+    Default ignore patterns are handled separately.
+    """
+    # Find all matching include patterns with their targeting distance and rank.
+    # Resolution uses (distance, rank) tuples — lower distance wins first,
+    # then lower rank breaks ties. This ensures that a pattern directly targeting
+    # the item (distance 0) beats an ancestor folder pattern (distance N).
+    matching_includes: list[tuple[ParsedPattern, int, int]] = []
+    for pp in include_parsed:
+        if matches_path(pp, rel_path, is_dir=is_dir):
+            distance = compute_targeting_distance(pp, rel_path, is_dir)
+            matching_includes.append((pp, distance, pp.specificity))
+
+    # Find all matching exclude patterns with their targeting distance and rank
+    matching_excludes: list[tuple[ParsedPattern, int, int]] = []
+    for pp in exclude_parsed:
+        if matches_path(pp, rel_path, is_dir=is_dir):
+            distance = compute_targeting_distance(pp, rel_path, is_dir)
+            matching_excludes.append((pp, distance, pp.specificity))
+
+    has_includes = len(include_parsed) > 0
+    has_matching_includes = len(matching_includes) > 0
+    has_matching_excludes = len(matching_excludes) > 0
+
+    # Case 1: Neither match
+    if not has_matching_includes and not has_matching_excludes:
+        if has_includes:
+            if is_dir:
+                # Allow directories through for traversal when include patterns
+                # could match files or subdirectories deeper in the tree.
+                # Without this, os.walk prunes parent dirs and never reaches matches.
+                # e.g., -i '**/*.py' needs src/ traversed for src/main.py
+                # e.g., -i '**/utils/' needs src/ traversed for src/utils/
+                has_file_only_includes = any(not pp.is_folder for pp in include_parsed)
+                has_deep_folder_includes = any(
+                    pp.is_folder and (not pp.anchored or pp.explicit_recursive) for pp in include_parsed
+                )
+                if has_file_only_includes or has_deep_folder_includes:
+                    return (True, "Directory allowed for traversal")
+            return (False, "Does not match any include pattern")
+        else:
+            return (True, "No patterns specified")
+
+    # Case 2: Only includes match
+    if has_matching_includes and not has_matching_excludes:
+        best_include = min(matching_includes, key=lambda x: (x[1], x[2]))
+        return (True, f"Included by pattern: {best_include[0].raw}")
+
+    # Case 3: Only excludes match
+    if not has_matching_includes and has_matching_excludes:
+        best_exclude = min(matching_excludes, key=lambda x: (x[1], x[2]))
+        return (False, f"Excluded by pattern: {best_exclude[0].raw}")
+
+    # Case 4: Both match -> compare best (distance, rank) tuples
+    best_include = min(matching_includes, key=lambda x: (x[1], x[2]))
+    best_exclude = min(matching_excludes, key=lambda x: (x[1], x[2]))
+
+    inc_key = (best_include[1], best_include[2])
+    exc_key = (best_exclude[1], best_exclude[2])
+
+    if inc_key < exc_key:
+        return (True, f"Included by pattern: {best_include[0].raw} (more specific than {best_exclude[0].raw})")
+    elif exc_key < inc_key:
+        return (False, f"Excluded by pattern: {best_exclude[0].raw} (more specific than {best_include[0].raw})")
+    else:
+        # Tie -> exclude wins
+        return (False, f"Excluded by pattern: {best_exclude[0].raw} (tie with {best_include[0].raw})")
+
+
 def process_directory_recursive(
     base_dir_path: pathlib.Path,
     include_patterns: List[str],
@@ -56,13 +143,28 @@ def process_directory_recursive(
     log_events: List[LogEvent] = []  # Initialize log_events list
 
     max_size_bytes = max_size_kb * 1024
-    effective_exclude_patterns = list(exclude_patterns)  # Start with user-defined excludes
-    if not no_default_ignore:
-        effective_exclude_patterns.extend(DEFAULT_IGNORE_PATTERNS)
 
-    logger.debug(f"Core: Effective exclude patterns count: {len(effective_exclude_patterns)}")
+    # Parse user patterns ONCE before traversal for specificity resolution
+    include_parsed = [parse_pattern(p) for p in include_patterns]
+    exclude_parsed = [parse_pattern(p) for p in exclude_patterns]
+
+    logger.debug(f"Core: User include patterns: {len(include_parsed)}, exclude patterns: {len(exclude_parsed)}")
     logger.debug(f"Core: Max size KB: {max_size_kb}, Ignore read errors: {ignore_read_errors}")
     logger.debug(f"Core: Follow symlinks: {follow_symlinks}, No default ignore: {no_default_ignore}")
+
+    # Warn if an include pattern would match something covered by default ignores
+    if not no_default_ignore and include_parsed:
+        for inc_pp in include_parsed:
+            for default_pat in DEFAULT_IGNORE_PATTERNS:
+                default_parsed = parse_pattern(default_pat)
+                # Simple heuristic: if the include pattern's segments overlap with default ignore
+                if inc_pp.raw == default_pat or (
+                    inc_pp.is_folder and default_parsed.is_folder and inc_pp.segments == default_parsed.segments
+                ):
+                    logger.warning(
+                        f"Pattern '{inc_pp.raw}' matches a default-ignored path. Use --no-default-ignore to include it."
+                    )
+                    break
 
     def _traverse() -> Generator[ProcessedItem, None, None]:
         """Nested generator function to handle the actual traversal and yielding."""
@@ -88,16 +190,24 @@ def process_directory_recursive(
                 except OSError as e:
                     logger.warning(f"Could not stat file {relative_file_path_str} for size: {e}")
 
+                # Pre-specificity checks: symlinks, hidden files, default ignores
                 if not follow_symlinks and file_path_obj.is_symlink():
                     reason_file_excluded = "Is a symlink (symlink following disabled)"
                 elif is_path_hidden(relative_file_path) and not no_default_ignore:
                     reason_file_excluded = "Is a hidden file"
-                elif matches_patterns(relative_file_path_str, exclude_patterns):
-                    reason_file_excluded = "Matches user-specified exclude pattern"
                 elif not no_default_ignore and matches_patterns(relative_file_path_str, DEFAULT_IGNORE_PATTERNS):
                     reason_file_excluded = "Matches default ignore pattern"
-                elif include_patterns and not matches_patterns(relative_file_path_str, include_patterns):
-                    reason_file_excluded = "Does not match any include pattern"
+
+                # If not excluded by pre-checks, use specificity-based resolution
+                if not reason_file_excluded:
+                    included, conflict_reason = resolve_pattern_conflicts(
+                        relative_file_path_str,
+                        is_dir=False,
+                        include_parsed=include_parsed,
+                        exclude_parsed=exclude_parsed,
+                    )
+                    if not included:
+                        reason_file_excluded = conflict_reason
 
                 if reason_file_excluded:
                     stats["excluded_items_count"] += 1
@@ -169,14 +279,63 @@ def process_directory_recursive(
                 reason_dir_excluded = ""
                 dir_size_kb = _get_dir_size(dir_path_obj, follow_symlinks)
 
+                # Pre-specificity checks: max-depth, symlinks, hidden, default ignores
                 if max_depth is not None and current_depth >= max_depth:
                     reason_dir_excluded = "Exceeds max depth"
                 elif not follow_symlinks and dir_path_obj.is_symlink():
                     reason_dir_excluded = "Is a symlink (symlink following disabled)"
                 elif is_path_hidden(relative_dir_path) and not no_default_ignore:
                     reason_dir_excluded = "Is a hidden directory"
-                elif matches_patterns(relative_dir_path_str, effective_exclude_patterns):
-                    reason_dir_excluded = "Matches an exclude pattern"
+                elif not no_default_ignore and matches_patterns(relative_dir_path_str, DEFAULT_IGNORE_PATTERNS):
+                    reason_dir_excluded = "Matches default ignore pattern"
+
+                # If not excluded by pre-checks, use specificity-based resolution
+                # For directories, we track whether to prune from os.walk separately
+                # from whether to log as excluded. A dir excluded by -x should still
+                # be traversed if a more specific -i pattern could match files inside.
+                should_prune = False
+                if not reason_dir_excluded:
+                    included, conflict_reason = resolve_pattern_conflicts(
+                        relative_dir_path_str,
+                        is_dir=True,
+                        include_parsed=include_parsed,
+                        exclude_parsed=exclude_parsed,
+                    )
+                    if not included:
+                        reason_dir_excluded = conflict_reason
+                        # With targeting distance, file-level includes at distance 0
+                        # always beat folder excludes at distance ≥1 for files inside.
+                        # Don't prune if any file include could match inside this dir.
+                        should_prune = True
+                        for inc_pp in include_parsed:
+                            if not inc_pp.is_folder:
+                                if inc_pp.anchored and "**" not in inc_pp.segments:
+                                    # Anchored file include without **: only relevant
+                                    # if its path starts within this directory
+                                    inc_prefix = "/".join(inc_pp.segments[:-1]) if len(inc_pp.segments) > 1 else ""
+                                    if inc_prefix and not inc_prefix.startswith(relative_dir_path_str):
+                                        continue  # Can't match inside this dir
+                                # Unanchored, recursive, or prefix-matching file pattern
+                                # could match files inside → don't prune
+                                should_prune = False
+                                break
+                            else:
+                                # Folder include that could target something inside
+                                # the excluded dir (e.g., -x 'tests/' -i 'tests/unit/')
+                                if inc_pp.anchored:
+                                    inc_path = "/".join(inc_pp.segments)
+                                    if inc_path.startswith(relative_dir_path_str + "/"):
+                                        should_prune = False
+                                        break
+                                elif not inc_pp.anchored:
+                                    # Unanchored folder could match inside → don't prune
+                                    should_prune = False
+                                    break
+                    else:
+                        should_prune = False
+                else:
+                    # Pre-check exclusions (hidden, default ignore) always prune
+                    should_prune = True
 
                 if reason_dir_excluded:
                     stats["excluded_items_count"] += 1
@@ -189,17 +348,22 @@ def process_directory_recursive(
                             "reason": reason_dir_excluded,
                         }
                     )
-                    dirs_to_remove.append(dir_name)
+                    if should_prune:
+                        dirs_to_remove.append(dir_name)
                 else:
-                    log_events.append(
-                        {
-                            "path": relative_dir_path_str,
-                            "item_type": "folder",
-                            "status": "included",
-                            "size_kb": dir_size_kb,
-                            "reason": None,
-                        }
-                    )
+                    # Only log directories that were genuinely matched by an
+                    # include pattern. Dirs allowed purely for traversal (so
+                    # os.walk can reach deeper matches) are not user-visible results.
+                    if not conflict_reason.startswith("Directory allowed"):
+                        log_events.append(
+                            {
+                                "path": relative_dir_path_str,
+                                "item_type": "folder",
+                                "status": "included",
+                                "size_kb": dir_size_kb,
+                                "reason": conflict_reason,
+                            }
+                        )
 
             # Prune directories from os.walk traversal by modifying dirs_orig in-place
             if dirs_to_remove:

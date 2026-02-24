@@ -16,11 +16,24 @@ from dirdigest.formatter import format_log_event_for_cli  # Added log event form
 from dirdigest.utils import clipboard as dirdigest_clipboard
 from dirdigest.utils import config as dirdigest_config
 from dirdigest.utils import logger as dirdigest_logger
+from dirdigest.utils.logger import stdout_console
+from dirdigest.utils.patterns import parse_pattern
 from dirdigest.utils.system import (  # MODIFIED: Import system utils
     convert_wsl_path_to_windows,
     is_running_in_wsl,
 )
 from dirdigest.utils.tokens import approximate_token_count
+
+RANK_NAMES = {
+    1: "anchored exact file",
+    2: "anchored folder",
+    3: "anchored glob",
+    4: "path + filename",
+    5: "path + glob",
+    6: "single file",
+    7: "single folder",
+    8: "glob",
+}
 
 
 @click.command(
@@ -164,6 +177,14 @@ from dirdigest.utils.tokens import approximate_token_count
     default=None,  # Handled explicitly later if None or empty
     help="Sort the detailed item-by-item log output. Specify keys in order. 'status': excluded then included. 'size': largest first. 'path': alphabetically. Default: status, size. Allowed multiple times e.g. --sort-output-log-by status --sort-output-log-by size.",
 )
+@click.option(
+    "--dry-run",
+    "--explain",
+    "dry_run",
+    is_flag=True,
+    default=False,
+    help="Show how patterns would resolve without producing a digest.",
+)
 def main_cli(
     ctx: click.Context,
     directory_arg: pathlib.Path,
@@ -182,6 +203,7 @@ def main_cli(
     log_file: pathlib.Path | None,
     config_path_cli: pathlib.Path | None,
     sort_output_log_by: Tuple[str, ...],  # Added new sort parameter
+    dry_run: bool = False,
 ):
     start_time = time.monotonic()
 
@@ -307,22 +329,74 @@ def main_cli(
     # Consume the generator to a list. This will populate log_events_from_core.
     processed_items_list = list(processed_items_generator)
 
+    # --- Dry-run / explain mode ---
+    if dry_run:
+        stdout_console.print("\n[bold]Pattern Resolution:[/bold]")
+        all_patterns: list[tuple[str, str]] = []
+        for p in final_include if final_include else []:
+            all_patterns.append(("-i", p))
+        for p in final_exclude if final_exclude else []:
+            all_patterns.append(("-x", p))
+
+        for flag, pattern in all_patterns:
+            try:
+                parsed = parse_pattern(pattern)
+                rank = parsed.specificity
+                rank_name = RANK_NAMES.get(rank, f"rank {rank}")
+            except Exception:
+                rank = 0
+                rank_name = "unknown"
+            stdout_console.print(f"  {flag} [cyan]'{pattern}'[/cyan]  [[dim]rank {rank}, {rank_name}[/dim]]")
+
+        stdout_console.print("\n[bold]Results:[/bold]")
+        included_files = 0
+        included_folders = 0
+        excluded_count = 0
+        for event in log_events_from_core:
+            status = event.get("status", "unknown")
+            path = event.get("path", "")
+            reason = event.get("reason") or ""
+            item_type = event.get("item_type", "file")
+
+            # Skip directories that were only allowed through for traversal
+            # (no include pattern directly matched the folder itself)
+            if item_type == "folder" and status == "included" and reason.startswith("Directory allowed"):
+                continue
+
+            if status == "included":
+                if item_type == "folder":
+                    included_folders += 1
+                else:
+                    included_files += 1
+                label = f"  [green]INCLUDED[/green]  {path}"
+            elif status == "excluded":
+                excluded_count += 1
+                label = f"  [red]EXCLUDED[/red]  {path}"
+            else:
+                label = f"  [yellow]{status.upper()}[/yellow]  {path}"
+            if reason:
+                label += f"  [dim]({reason})[/dim]"
+            stdout_console.print(label)
+
+        parts = [f"{included_files} file{'s' if included_files != 1 else ''}"]
+        if included_folders:
+            parts.append(f"{included_folders} folder{'s' if included_folders != 1 else ''}")
+        stdout_console.print(f"\n[bold]Summary:[/bold] {' + '.join(parts)} included, {excluded_count} excluded")
+        return
+    # --- End dry-run mode ---
+
     # --- Process and print log events ---
     if log_events_from_core:
         log.debug(f"CLI: Received {len(log_events_from_core)} log events from core.")
         sorted_log_events = _sort_log_events(log_events_from_core, effective_sort_keys)
         log.debug(f"CLI: Sorted {len(sorted_log_events)} log events.")
 
-        # Print headers and log items
-        # These logs should go through the main logger to respect quiet/verbose and log file settings
-        # format_log_event_for_cli produces Rich-formatted strings, which logger handles.
         printed_excluded_header = False
         printed_included_header = False
         for event in sorted_log_events:
             formatted_event_str = format_log_event_for_cli(event)
             if effective_sort_keys != ["path"]:
                 if event.get("status") == "excluded" and not printed_excluded_header:
-                    # Use log.info for these headers so they go to log file and respect verbosity
                     log.info(
                         "\n\n[bold red]========================== EXCLUDED ITEMS ==========================[/bold red]\n\n"
                     )
@@ -332,12 +406,12 @@ def main_cli(
                         "\n\n[bold green]========================== INCLUDED ITEMS ==========================[/bold green]\n\n"
                     )
                     printed_included_header = True
-            log.info(formatted_event_str)  # Each event is logged as INFO
+            log.info(formatted_event_str)
     else:
         log.debug("CLI: No log events received from core.")
     # --- End Process and print log events ---
 
-    log.info("\n\nCLI: Building digest tree...")  # This message now appears after individual logs
+    log.info("\n\nCLI: Building digest tree...")
     root_node, metadata_for_output = core.build_digest_tree(
         final_directory, iter(processed_items_list), stats_from_core
     )

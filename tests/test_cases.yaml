@@ -1,0 +1,869 @@
+- id: TC-001
+  description: "Only Python files at any depth"
+  flags: ["-i '**/*.py'"]
+  no_default_ignore: false
+  checking: "Recursive glob includes .py at all depths, non-.py excluded"
+  verdicts:
+    README.md: EXCLUDED  # not .py
+    setup.py: INCLUDED  # matches **/*.py
+    .env: EXCLUDED  # default ignore (hidden file)
+    .gitignore: EXCLUDED  # default ignore (hidden file)
+    src/main.py: INCLUDED  # matches **/*.py
+    src/config.py: INCLUDED  # matches **/*.py
+    src/utils/helpers.py: INCLUDED  # matches **/*.py
+    src/utils/__init__.py: INCLUDED  # matches **/*.py
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # matches **/*.py
+    src/feature/tests/test_module.py: INCLUDED  # matches **/*.py
+    tests/conftest.py: INCLUDED  # matches **/*.py
+    tests/test_main.py: INCLUDED  # matches **/*.py
+    tests/test_utils.py: INCLUDED  # matches **/*.py
+    tests/fixtures/data.json: EXCLUDED  # not .py
+    tests/fixtures/sample.csv: EXCLUDED  # not .py
+    docs/index.md: EXCLUDED  # not .py
+    docs/api.md: EXCLUDED  # not .py
+    scripts/deploy.sh: EXCLUDED  # not .py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not .py
+    data/cache/temp.dat: EXCLUDED  # not .py
+
+- id: TC-002
+  description: "Python files at root level only"
+  flags: ["-i '*.py'"]
+  no_default_ignore: false
+  checking: "Non-recursive glob *.py only matches root-level .py files"
+  verdicts:
+    README.md: EXCLUDED  # not .py
+    setup.py: INCLUDED  # root-level .py matches *.py
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # nested, *.py only matches root
+    src/config.py: EXCLUDED  # nested
+    src/utils/helpers.py: EXCLUDED  # nested
+    src/utils/__init__.py: EXCLUDED  # nested
+    src/utils/vendor/lib.py: EXCLUDED  # nested
+    src/feature/module.py: EXCLUDED  # nested
+    src/feature/tests/test_module.py: EXCLUDED  # nested
+    tests/conftest.py: EXCLUDED  # nested
+    tests/test_main.py: EXCLUDED  # nested
+    tests/test_utils.py: EXCLUDED  # nested
+    tests/fixtures/data.json: EXCLUDED  # not .py and nested
+    tests/fixtures/sample.csv: EXCLUDED  # not .py and nested
+    docs/index.md: EXCLUDED  # not .py
+    docs/api.md: EXCLUDED  # not .py
+    scripts/deploy.sh: EXCLUDED  # not .py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not .py
+    data/cache/temp.dat: EXCLUDED  # not .py
+
+- id: TC-003
+  description: "Anchored src folder include"
+  flags: ["-i './src/'"]
+  no_default_ignore: false
+  checking: "Anchored folder ./src/ includes everything inside root-level src/ only"
+  verdicts:
+    README.md: EXCLUDED  # not in src/
+    setup.py: EXCLUDED  # not in src/
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # inside ./src/
+    src/config.py: INCLUDED  # inside ./src/
+    src/utils/helpers.py: INCLUDED  # inside ./src/
+    src/utils/__init__.py: INCLUDED  # inside ./src/
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # inside ./src/
+    src/feature/tests/test_module.py: INCLUDED  # inside ./src/
+    tests/conftest.py: EXCLUDED  # not in src/
+    tests/test_main.py: EXCLUDED  # not in src/
+    tests/test_utils.py: EXCLUDED  # not in src/
+    tests/fixtures/data.json: EXCLUDED  # not in src/
+    tests/fixtures/sample.csv: EXCLUDED  # not in src/
+    docs/index.md: EXCLUDED  # not in src/
+    docs/api.md: EXCLUDED  # not in src/
+    scripts/deploy.sh: EXCLUDED  # not in src/
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not in src/
+    data/cache/temp.dat: EXCLUDED  # not in src/
+
+- id: TC-004
+  description: "Unanchored tests/ folder includes both test directories"
+  flags: ["-i 'tests/'"]
+  no_default_ignore: false
+  checking: "Unanchored folder tests/ matches at any depth — both root tests/ and src/feature/tests/"
+  verdicts:
+    README.md: EXCLUDED  # not in any tests/
+    setup.py: EXCLUDED  # not in any tests/
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # not in any tests/
+    src/config.py: EXCLUDED  # not in any tests/
+    src/utils/helpers.py: EXCLUDED  # not in any tests/
+    src/utils/__init__.py: EXCLUDED  # not in any tests/
+    src/utils/vendor/lib.py: EXCLUDED  # not in any tests/
+    src/feature/module.py: EXCLUDED  # not in any tests/
+    src/feature/tests/test_module.py: INCLUDED  # inside src/feature/tests/
+    tests/conftest.py: INCLUDED  # inside root tests/
+    tests/test_main.py: INCLUDED  # inside root tests/
+    tests/test_utils.py: INCLUDED  # inside root tests/
+    tests/fixtures/data.json: INCLUDED  # inside root tests/
+    tests/fixtures/sample.csv: INCLUDED  # inside root tests/
+    docs/index.md: EXCLUDED  # not in any tests/
+    docs/api.md: EXCLUDED  # not in any tests/
+    scripts/deploy.sh: EXCLUDED  # not in any tests/
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not in any tests/
+    data/cache/temp.dat: EXCLUDED  # not in any tests/
+
+- id: TC-005
+  description: "Exclude unanchored tests/ folder, no includes"
+  flags: ["-x 'tests/'"]
+  no_default_ignore: false
+  checking: "With no -i flags everything is included; -x tests/ removes both tests/ directories"
+  verdicts:
+    README.md: INCLUDED  # no include filter, not excluded
+    setup.py: INCLUDED  # no include filter, not excluded
+    .env: EXCLUDED  # default ignore (hidden file)
+    .gitignore: EXCLUDED  # default ignore (hidden file)
+    src/main.py: INCLUDED  # not in any tests/
+    src/config.py: INCLUDED  # not in any tests/
+    src/utils/helpers.py: INCLUDED  # not in any tests/
+    src/utils/__init__.py: INCLUDED  # not in any tests/
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # not in any tests/
+    src/feature/tests/test_module.py: EXCLUDED  # inside src/feature/tests/, matched by -x tests/
+    tests/conftest.py: EXCLUDED  # inside root tests/
+    tests/test_main.py: EXCLUDED  # inside root tests/
+    tests/test_utils.py: EXCLUDED  # inside root tests/
+    tests/fixtures/data.json: EXCLUDED  # inside root tests/
+    tests/fixtures/sample.csv: EXCLUDED  # inside root tests/
+    docs/index.md: INCLUDED  # not in any tests/
+    docs/api.md: INCLUDED  # not in any tests/
+    scripts/deploy.sh: INCLUDED  # not in any tests/
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: INCLUDED  # not in any tests/
+    data/cache/temp.dat: INCLUDED  # not in any tests/
+
+- id: TC-006
+  description: "File include beats folder exclude — targeting distance"
+  flags: ["-i '**/*.py'", "-x 'tests/'"]
+  no_default_ignore: false
+  checking: "File glob -i **/*.py (dist 0) beats folder -x tests/ (dist 1+) for .py files inside tests/"
+  verdicts:
+    README.md: EXCLUDED  # not .py, no include match
+    setup.py: INCLUDED  # matches **/*.py
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # matches **/*.py, no exclude
+    src/config.py: INCLUDED  # matches **/*.py, no exclude
+    src/utils/helpers.py: INCLUDED  # matches **/*.py, no exclude
+    src/utils/__init__.py: INCLUDED  # matches **/*.py, no exclude
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # matches **/*.py, no exclude
+    src/feature/tests/test_module.py: INCLUDED  # **/*.py dist 0 beats tests/ dist 1
+    tests/conftest.py: INCLUDED  # **/*.py dist 0 beats tests/ dist 1
+    tests/test_main.py: INCLUDED  # **/*.py dist 0 beats tests/ dist 1
+    tests/test_utils.py: INCLUDED  # **/*.py dist 0 beats tests/ dist 1
+    tests/fixtures/data.json: EXCLUDED  # not .py, no include match
+    tests/fixtures/sample.csv: EXCLUDED  # not .py, no include match
+    docs/index.md: EXCLUDED  # not .py
+    docs/api.md: EXCLUDED  # not .py
+    scripts/deploy.sh: EXCLUDED  # not .py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not .py
+    data/cache/temp.dat: EXCLUDED  # not .py
+
+- id: TC-007
+  description: "Folder include vs file glob exclude — exclude wins at lower distance"
+  flags: ["-i './src/'", "-x '**/*.py'"]
+  no_default_ignore: false
+  checking: "File glob -x **/*.py (dist 0) beats folder -i ./src/ (dist 1+); all src/ files are .py so nothing survives"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match (not in src/); also excluded by **/*.py
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # -i ./src/ dist 1, -x **/*.py dist 0 → exclude wins
+    src/config.py: EXCLUDED  # -i ./src/ dist 1, -x **/*.py dist 0 → exclude wins
+    src/utils/helpers.py: EXCLUDED  # -i ./src/ dist 2, -x **/*.py dist 0 → exclude wins
+    src/utils/__init__.py: EXCLUDED  # -i ./src/ dist 2, -x **/*.py dist 0 → exclude wins
+    src/utils/vendor/lib.py: EXCLUDED  # -i ./src/ dist 3, -x **/*.py dist 0 → exclude wins
+    src/feature/module.py: EXCLUDED  # -i ./src/ dist 2, -x **/*.py dist 0 → exclude wins
+    src/feature/tests/test_module.py: EXCLUDED  # -i ./src/ dist 3, -x **/*.py dist 0 → exclude wins
+    tests/conftest.py: EXCLUDED  # no include match
+    tests/test_main.py: EXCLUDED  # no include match
+    tests/test_utils.py: EXCLUDED  # no include match
+    tests/fixtures/data.json: EXCLUDED  # no include match
+    tests/fixtures/sample.csv: EXCLUDED  # no include match
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-008
+  description: "Cherry-pick: folder include, folder exclude, file include rescue"
+  flags: ["-i './src/'", "-x 'utils/'", "-i 'helpers.py'"]
+  no_default_ignore: false
+  checking: "helpers.py (dist 0) cherry-picked back from utils/ exclusion (dist 1) inside src/ include (dist 2+)"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # -i ./src/ dist 1, no exclude match
+    src/config.py: INCLUDED  # -i ./src/ dist 1, no exclude match
+    src/utils/helpers.py: INCLUDED  # -i helpers.py dist 0 beats -x utils/ dist 1 beats -i ./src/ dist 2
+    src/utils/__init__.py: EXCLUDED  # -x utils/ dist 1 beats -i ./src/ dist 2; no file include
+    src/utils/vendor/lib.py: EXCLUDED  # -x utils/ dist 2 beats -i ./src/ dist 3; no file include
+    src/feature/module.py: INCLUDED  # -i ./src/ dist 2, no exclude match
+    src/feature/tests/test_module.py: INCLUDED  # -i ./src/ dist 3, no exclude match
+    tests/conftest.py: EXCLUDED  # no include match
+    tests/test_main.py: EXCLUDED  # no include match
+    tests/test_utils.py: EXCLUDED  # no include match
+    tests/fixtures/data.json: EXCLUDED  # no include match
+    tests/fixtures/sample.csv: EXCLUDED  # no include match
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-009
+  description: "No-default-ignore with no flags — everything included"
+  flags: []
+  no_default_ignore: true
+  checking: "--no-default-ignore with no include/exclude flags includes every file including hidden and node_modules"
+  verdicts:
+    README.md: INCLUDED  # everything included
+    setup.py: INCLUDED  # everything included
+    .env: INCLUDED  # no-default-ignore allows hidden files
+    .gitignore: INCLUDED  # no-default-ignore allows hidden files
+    src/main.py: INCLUDED  # everything included
+    src/config.py: INCLUDED  # everything included
+    src/utils/helpers.py: INCLUDED  # everything included
+    src/utils/__init__.py: INCLUDED  # everything included
+    src/utils/vendor/lib.py: INCLUDED  # no-default-ignore allows vendor/
+    src/feature/module.py: INCLUDED  # everything included
+    src/feature/tests/test_module.py: INCLUDED  # everything included
+    tests/conftest.py: INCLUDED  # everything included
+    tests/test_main.py: INCLUDED  # everything included
+    tests/test_utils.py: INCLUDED  # everything included
+    tests/fixtures/data.json: INCLUDED  # everything included
+    tests/fixtures/sample.csv: INCLUDED  # everything included
+    docs/index.md: INCLUDED  # everything included
+    docs/api.md: INCLUDED  # everything included
+    scripts/deploy.sh: INCLUDED  # everything included
+    node_modules/package/index.js: INCLUDED  # no-default-ignore allows node_modules
+    data/output.csv: INCLUDED  # everything included
+    data/cache/temp.dat: INCLUDED  # everything included
+
+- id: TC-010
+  description: "No-default-ignore with JS include — node_modules file reachable"
+  flags: ["-i '**/*.js'"]
+  no_default_ignore: true
+  checking: "--no-default-ignore allows **/*.js to reach into node_modules/ which is normally default-ignored"
+  verdicts:
+    README.md: EXCLUDED  # not .js
+    setup.py: EXCLUDED  # not .js
+    .env: EXCLUDED  # not .js (no-default-ignore doesn't auto-include, just removes ignore)
+    .gitignore: EXCLUDED  # not .js
+    src/main.py: EXCLUDED  # not .js
+    src/config.py: EXCLUDED  # not .js
+    src/utils/helpers.py: EXCLUDED  # not .js
+    src/utils/__init__.py: EXCLUDED  # not .js
+    src/utils/vendor/lib.py: EXCLUDED  # not .js
+    src/feature/module.py: EXCLUDED  # not .js
+    src/feature/tests/test_module.py: EXCLUDED  # not .js
+    tests/conftest.py: EXCLUDED  # not .js
+    tests/test_main.py: EXCLUDED  # not .js
+    tests/test_utils.py: EXCLUDED  # not .js
+    tests/fixtures/data.json: EXCLUDED  # not .js
+    tests/fixtures/sample.csv: EXCLUDED  # not .js
+    docs/index.md: EXCLUDED  # not .js
+    docs/api.md: EXCLUDED  # not .js
+    scripts/deploy.sh: EXCLUDED  # not .js
+    node_modules/package/index.js: INCLUDED  # --no-default-ignore + matches **/*.js
+    data/output.csv: EXCLUDED  # not .js
+    data/cache/temp.dat: EXCLUDED  # not .js
+
+- id: TC-011
+  description: "Anchored exact file include"
+  flags: ["-i './src/main.py'"]
+  no_default_ignore: false
+  checking: "Anchored exact file path includes only that single file"
+  verdicts:
+    README.md: EXCLUDED  # not the target file
+    setup.py: EXCLUDED  # not the target file
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # exact match ./src/main.py
+    src/config.py: EXCLUDED  # not the target file
+    src/utils/helpers.py: EXCLUDED  # not the target file
+    src/utils/__init__.py: EXCLUDED  # not the target file
+    src/utils/vendor/lib.py: EXCLUDED  # not the target file
+    src/feature/module.py: EXCLUDED  # not the target file
+    src/feature/tests/test_module.py: EXCLUDED  # not the target file
+    tests/conftest.py: EXCLUDED  # not the target file
+    tests/test_main.py: EXCLUDED  # not the target file
+    tests/test_utils.py: EXCLUDED  # not the target file
+    tests/fixtures/data.json: EXCLUDED  # not the target file
+    tests/fixtures/sample.csv: EXCLUDED  # not the target file
+    docs/index.md: EXCLUDED  # not the target file
+    docs/api.md: EXCLUDED  # not the target file
+    scripts/deploy.sh: EXCLUDED  # not the target file
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not the target file
+    data/cache/temp.dat: EXCLUDED  # not the target file
+
+- id: TC-012
+  description: "Unanchored single file name — matches at any depth"
+  flags: ["-i 'config.py'"]
+  no_default_ignore: false
+  checking: "Single file name config.py (rank 6) matches any file with that name regardless of depth"
+  verdicts:
+    README.md: EXCLUDED  # not named config.py
+    setup.py: EXCLUDED  # not named config.py
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # not named config.py
+    src/config.py: INCLUDED  # matches file name config.py
+    src/utils/helpers.py: EXCLUDED  # not named config.py
+    src/utils/__init__.py: EXCLUDED  # not named config.py
+    src/utils/vendor/lib.py: EXCLUDED  # not named config.py
+    src/feature/module.py: EXCLUDED  # not named config.py
+    src/feature/tests/test_module.py: EXCLUDED  # not named config.py
+    tests/conftest.py: EXCLUDED  # not named config.py
+    tests/test_main.py: EXCLUDED  # not named config.py
+    tests/test_utils.py: EXCLUDED  # not named config.py
+    tests/fixtures/data.json: EXCLUDED  # not named config.py
+    tests/fixtures/sample.csv: EXCLUDED  # not named config.py
+    docs/index.md: EXCLUDED  # not named config.py
+    docs/api.md: EXCLUDED  # not named config.py
+    scripts/deploy.sh: EXCLUDED  # not named config.py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not named config.py
+    data/cache/temp.dat: EXCLUDED  # not named config.py
+
+- id: TC-013
+  description: "Path + filename include"
+  flags: ["-i 'tests/test_main.py'"]
+  no_default_ignore: false
+  checking: "Path+filename pattern tests/test_main.py (rank 4) matches that file inside any tests/ folder"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # no include match
+    src/config.py: EXCLUDED  # no include match
+    src/utils/helpers.py: EXCLUDED  # no include match
+    src/utils/__init__.py: EXCLUDED  # no include match
+    src/utils/vendor/lib.py: EXCLUDED  # no include match
+    src/feature/module.py: EXCLUDED  # no include match
+    src/feature/tests/test_module.py: EXCLUDED  # in tests/ but file is test_module.py not test_main.py
+    tests/conftest.py: EXCLUDED  # in tests/ but wrong filename
+    tests/test_main.py: INCLUDED  # matches tests/test_main.py
+    tests/test_utils.py: EXCLUDED  # in tests/ but wrong filename
+    tests/fixtures/data.json: EXCLUDED  # no include match
+    tests/fixtures/sample.csv: EXCLUDED  # no include match
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-014
+  description: "Path + glob include inside tests/"
+  flags: ["-i 'tests/**/*.py'"]
+  no_default_ignore: false
+  checking: "Path+glob tests/**/*.py (rank 5) matches .py files recursively inside any tests/ folder"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # not inside tests/
+    src/config.py: EXCLUDED  # not inside tests/
+    src/utils/helpers.py: EXCLUDED  # not inside tests/
+    src/utils/__init__.py: EXCLUDED  # not inside tests/
+    src/utils/vendor/lib.py: EXCLUDED  # not inside tests/
+    src/feature/module.py: EXCLUDED  # not inside tests/
+    src/feature/tests/test_module.py: INCLUDED  # .py inside src/feature/tests/
+    tests/conftest.py: INCLUDED  # .py inside root tests/
+    tests/test_main.py: INCLUDED  # .py inside root tests/
+    tests/test_utils.py: INCLUDED  # .py inside root tests/
+    tests/fixtures/data.json: EXCLUDED  # inside tests/ but not .py
+    tests/fixtures/sample.csv: EXCLUDED  # inside tests/ but not .py
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-015
+  description: "Anchored glob — .py files in root src/ only"
+  flags: ["-i './src/**/*.py'"]
+  no_default_ignore: false
+  checking: "Anchored glob ./src/**/*.py (rank 3) matches .py files recursively only inside root-level src/"
+  verdicts:
+    README.md: EXCLUDED  # not .py, not in src/
+    setup.py: EXCLUDED  # .py but not inside src/
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # .py inside ./src/
+    src/config.py: INCLUDED  # .py inside ./src/
+    src/utils/helpers.py: INCLUDED  # .py inside ./src/
+    src/utils/__init__.py: INCLUDED  # .py inside ./src/
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # .py inside ./src/
+    src/feature/tests/test_module.py: INCLUDED  # .py inside ./src/
+    tests/conftest.py: EXCLUDED  # .py but not inside ./src/
+    tests/test_main.py: EXCLUDED  # .py but not inside ./src/
+    tests/test_utils.py: EXCLUDED  # .py but not inside ./src/
+    tests/fixtures/data.json: EXCLUDED  # not in src/
+    tests/fixtures/sample.csv: EXCLUDED  # not in src/
+    docs/index.md: EXCLUDED  # not in src/
+    docs/api.md: EXCLUDED  # not in src/
+    scripts/deploy.sh: EXCLUDED  # not in src/
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not in src/
+    data/cache/temp.dat: EXCLUDED  # not in src/
+
+- id: TC-016
+  description: "Overlapping includes — src/ folder plus all .md files"
+  flags: ["-i './src/'", "-i '**/*.md'"]
+  no_default_ignore: false
+  checking: "Union of two includes: everything in src/ plus all .md files anywhere"
+  verdicts:
+    README.md: INCLUDED  # matches **/*.md
+    setup.py: EXCLUDED  # not in src/, not .md
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # inside ./src/
+    src/config.py: INCLUDED  # inside ./src/
+    src/utils/helpers.py: INCLUDED  # inside ./src/
+    src/utils/__init__.py: INCLUDED  # inside ./src/
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # inside ./src/
+    src/feature/tests/test_module.py: INCLUDED  # inside ./src/
+    tests/conftest.py: EXCLUDED  # not in src/, not .md
+    tests/test_main.py: EXCLUDED  # not in src/, not .md
+    tests/test_utils.py: EXCLUDED  # not in src/, not .md
+    tests/fixtures/data.json: EXCLUDED  # not in src/, not .md
+    tests/fixtures/sample.csv: EXCLUDED  # not in src/, not .md
+    docs/index.md: INCLUDED  # matches **/*.md
+    docs/api.md: INCLUDED  # matches **/*.md
+    scripts/deploy.sh: EXCLUDED  # not in src/, not .md
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not in src/, not .md
+    data/cache/temp.dat: EXCLUDED  # not in src/, not .md
+
+- id: TC-017
+  description: "Exclude all Python files, no includes"
+  flags: ["-x '**/*.py'"]
+  no_default_ignore: false
+  checking: "With no -i flags everything starts included; -x **/*.py removes all Python files"
+  verdicts:
+    README.md: INCLUDED  # not .py
+    setup.py: EXCLUDED  # matches **/*.py exclude
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # matches **/*.py exclude
+    src/config.py: EXCLUDED  # matches **/*.py exclude
+    src/utils/helpers.py: EXCLUDED  # matches **/*.py exclude
+    src/utils/__init__.py: EXCLUDED  # matches **/*.py exclude
+    src/utils/vendor/lib.py: EXCLUDED  # matches **/*.py exclude
+    src/feature/module.py: EXCLUDED  # matches **/*.py exclude
+    src/feature/tests/test_module.py: EXCLUDED  # matches **/*.py exclude
+    tests/conftest.py: EXCLUDED  # matches **/*.py exclude
+    tests/test_main.py: EXCLUDED  # matches **/*.py exclude
+    tests/test_utils.py: EXCLUDED  # matches **/*.py exclude
+    tests/fixtures/data.json: INCLUDED  # not .py
+    tests/fixtures/sample.csv: INCLUDED  # not .py
+    docs/index.md: INCLUDED  # not .py
+    docs/api.md: INCLUDED  # not .py
+    scripts/deploy.sh: INCLUDED  # not .py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: INCLUDED  # not .py
+    data/cache/temp.dat: INCLUDED  # not .py
+
+- id: TC-018
+  description: "Unanchored folder include vs anchored folder exclude"
+  flags: ["-i 'src/'", "-x './src/utils/'"]
+  no_default_ignore: false
+  checking: "Anchored -x ./src/utils/ (dist 1-2) beats unanchored -i src/ (dist 2-3) for files in utils/"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # -i src/ dist 1, no exclude match
+    src/config.py: INCLUDED  # -i src/ dist 1, no exclude match
+    src/utils/helpers.py: EXCLUDED  # -i src/ dist 2, -x ./src/utils/ dist 1 → exclude wins
+    src/utils/__init__.py: EXCLUDED  # -i src/ dist 2, -x ./src/utils/ dist 1 → exclude wins
+    src/utils/vendor/lib.py: EXCLUDED  # -i src/ dist 3, -x ./src/utils/ dist 2 → exclude wins
+    src/feature/module.py: INCLUDED  # -i src/ dist 2, no exclude match
+    src/feature/tests/test_module.py: INCLUDED  # -i src/ dist 3, no exclude match
+    tests/conftest.py: EXCLUDED  # no include match (tests/ ≠ src/)
+    tests/test_main.py: EXCLUDED  # no include match
+    tests/test_utils.py: EXCLUDED  # no include match
+    tests/fixtures/data.json: EXCLUDED  # no include match
+    tests/fixtures/sample.csv: EXCLUDED  # no include match
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-019
+  description: "Targeting distance — file glob include beats anchored folder exclude"
+  flags: ["-i '**/*.py'", "-x './src/'"]
+  no_default_ignore: false
+  checking: "File glob **/*.py (dist 0) always beats folder ./src/ (dist 1+) for .py files inside src/"
+  verdicts:
+    README.md: EXCLUDED  # not .py, no include match
+    setup.py: INCLUDED  # matches **/*.py, not in src/
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # -i **/*.py dist 0 beats -x ./src/ dist 1
+    src/config.py: INCLUDED  # -i **/*.py dist 0 beats -x ./src/ dist 1
+    src/utils/helpers.py: INCLUDED  # -i **/*.py dist 0 beats -x ./src/ dist 2
+    src/utils/__init__.py: INCLUDED  # -i **/*.py dist 0 beats -x ./src/ dist 2
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # -i **/*.py dist 0 beats -x ./src/ dist 2
+    src/feature/tests/test_module.py: INCLUDED  # -i **/*.py dist 0 beats -x ./src/ dist 3
+    tests/conftest.py: INCLUDED  # matches **/*.py, no exclude
+    tests/test_main.py: INCLUDED  # matches **/*.py, no exclude
+    tests/test_utils.py: INCLUDED  # matches **/*.py, no exclude
+    tests/fixtures/data.json: EXCLUDED  # not .py
+    tests/fixtures/sample.csv: EXCLUDED  # not .py
+    docs/index.md: EXCLUDED  # not .py
+    docs/api.md: EXCLUDED  # not .py
+    scripts/deploy.sh: EXCLUDED  # not .py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not .py
+    data/cache/temp.dat: EXCLUDED  # not .py
+
+- id: TC-020
+  description: "Targeting distance — file glob exclude beats folder include"
+  flags: ["-i 'tests/'", "-x '**/*.py'"]
+  no_default_ignore: false
+  checking: "File glob -x **/*.py (dist 0) beats folder -i tests/ (dist 1+); only non-.py files in tests/ survive"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # no include match
+    src/config.py: EXCLUDED  # no include match
+    src/utils/helpers.py: EXCLUDED  # no include match
+    src/utils/__init__.py: EXCLUDED  # no include match
+    src/utils/vendor/lib.py: EXCLUDED  # no include match
+    src/feature/module.py: EXCLUDED  # no include match
+    src/feature/tests/test_module.py: EXCLUDED  # -i tests/ dist 1, -x **/*.py dist 0 → exclude wins
+    tests/conftest.py: EXCLUDED  # -i tests/ dist 1, -x **/*.py dist 0 → exclude wins
+    tests/test_main.py: EXCLUDED  # -i tests/ dist 1, -x **/*.py dist 0 → exclude wins
+    tests/test_utils.py: EXCLUDED  # -i tests/ dist 1, -x **/*.py dist 0 → exclude wins
+    tests/fixtures/data.json: INCLUDED  # -i tests/ dist 2, no exclude match (not .py)
+    tests/fixtures/sample.csv: INCLUDED  # -i tests/ dist 2, no exclude match (not .py)
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-021
+  description: "Cherry-pick: folder include, subfolder exclude, file rescue"
+  flags: ["-i './tests/'", "-x 'fixtures/'", "-i 'data.json'"]
+  no_default_ignore: false
+  checking: "data.json (dist 0) cherry-picked back from fixtures/ exclusion (dist 1) within tests/ include"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # no include match
+    src/config.py: EXCLUDED  # no include match
+    src/utils/helpers.py: EXCLUDED  # no include match
+    src/utils/__init__.py: EXCLUDED  # no include match
+    src/utils/vendor/lib.py: EXCLUDED  # no include match
+    src/feature/module.py: EXCLUDED  # no include match
+    src/feature/tests/test_module.py: EXCLUDED  # not inside ./tests/ (anchored to root)
+    tests/conftest.py: INCLUDED  # -i ./tests/ dist 1, no exclude
+    tests/test_main.py: INCLUDED  # -i ./tests/ dist 1, no exclude
+    tests/test_utils.py: INCLUDED  # -i ./tests/ dist 1, no exclude
+    tests/fixtures/data.json: INCLUDED  # -i data.json dist 0 beats -x fixtures/ dist 1
+    tests/fixtures/sample.csv: EXCLUDED  # -x fixtures/ dist 1 beats -i ./tests/ dist 2
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-022
+  description: "Cherry-pick: src/ include, tests/ exclude, exact file rescue"
+  flags: ["-i './src/'", "-x 'tests/'", "-i './src/feature/tests/test_module.py'"]
+  no_default_ignore: false
+  checking: "Exact anchored file (rank 1, dist 0) cherry-picks one file back from tests/ exclusion inside src/"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # -i ./src/ dist 1, no exclude
+    src/config.py: INCLUDED  # -i ./src/ dist 1, no exclude
+    src/utils/helpers.py: INCLUDED  # -i ./src/ dist 2, no exclude
+    src/utils/__init__.py: INCLUDED  # -i ./src/ dist 2, no exclude
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # -i ./src/ dist 2, no exclude
+    src/feature/tests/test_module.py: INCLUDED  # -i exact file dist 0 beats -x tests/ dist 1
+    tests/conftest.py: EXCLUDED  # -x tests/ dist 1; no include at equal/lower dist
+    tests/test_main.py: EXCLUDED  # -x tests/ dist 1; no include at equal/lower dist
+    tests/test_utils.py: EXCLUDED  # -x tests/ dist 1; no include at equal/lower dist
+    tests/fixtures/data.json: EXCLUDED  # -x tests/ dist 2; no include match
+    tests/fixtures/sample.csv: EXCLUDED  # -x tests/ dist 2; no include match
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-023
+  description: "Multiple folder excludes"
+  flags: ["-x 'tests/'", "-x 'docs/'"]
+  no_default_ignore: false
+  checking: "Multiple -x flags combine to exclude both tests/ (any depth) and docs/ directories"
+  verdicts:
+    README.md: INCLUDED  # not in tests/ or docs/
+    setup.py: INCLUDED  # not in tests/ or docs/
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # not in tests/ or docs/
+    src/config.py: INCLUDED  # not in tests/ or docs/
+    src/utils/helpers.py: INCLUDED  # not in tests/ or docs/
+    src/utils/__init__.py: INCLUDED  # not in tests/ or docs/
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # not in tests/ or docs/
+    src/feature/tests/test_module.py: EXCLUDED  # inside src/feature/tests/, matched by -x tests/
+    tests/conftest.py: EXCLUDED  # inside root tests/
+    tests/test_main.py: EXCLUDED  # inside root tests/
+    tests/test_utils.py: EXCLUDED  # inside root tests/
+    tests/fixtures/data.json: EXCLUDED  # inside root tests/
+    tests/fixtures/sample.csv: EXCLUDED  # inside root tests/
+    docs/index.md: EXCLUDED  # inside docs/
+    docs/api.md: EXCLUDED  # inside docs/
+    scripts/deploy.sh: INCLUDED  # not in tests/ or docs/
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: INCLUDED  # not in tests/ or docs/
+    data/cache/temp.dat: INCLUDED  # not in tests/ or docs/
+
+- id: TC-024
+  description: "Root-level only markdown glob"
+  flags: ["-i '*.md'"]
+  no_default_ignore: false
+  checking: "Non-recursive *.md only matches root-level .md files; nested docs/*.md is excluded"
+  verdicts:
+    README.md: INCLUDED  # root-level .md
+    setup.py: EXCLUDED  # not .md
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # not .md
+    src/config.py: EXCLUDED  # not .md
+    src/utils/helpers.py: EXCLUDED  # not .md
+    src/utils/__init__.py: EXCLUDED  # not .md
+    src/utils/vendor/lib.py: EXCLUDED  # not .md
+    src/feature/module.py: EXCLUDED  # not .md
+    src/feature/tests/test_module.py: EXCLUDED  # not .md
+    tests/conftest.py: EXCLUDED  # not .md
+    tests/test_main.py: EXCLUDED  # not .md
+    tests/test_utils.py: EXCLUDED  # not .md
+    tests/fixtures/data.json: EXCLUDED  # not .md
+    tests/fixtures/sample.csv: EXCLUDED  # not .md
+    docs/index.md: EXCLUDED  # .md but nested, *.md is root-only
+    docs/api.md: EXCLUDED  # .md but nested, *.md is root-only
+    scripts/deploy.sh: EXCLUDED  # not .md
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not .md
+    data/cache/temp.dat: EXCLUDED  # not .md
+
+- id: TC-025
+  description: "Targeting distance — file exclude beats folder include for CSV"
+  flags: ["-i 'data/'", "-x '**/*.csv'"]
+  no_default_ignore: false
+  checking: "File glob -x **/*.csv (dist 0) beats folder -i data/ (dist 1+); only non-CSV files in data/ survive"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # no include match
+    src/config.py: EXCLUDED  # no include match
+    src/utils/helpers.py: EXCLUDED  # no include match
+    src/utils/__init__.py: EXCLUDED  # no include match
+    src/utils/vendor/lib.py: EXCLUDED  # no include match
+    src/feature/module.py: EXCLUDED  # no include match
+    src/feature/tests/test_module.py: EXCLUDED  # no include match
+    tests/conftest.py: EXCLUDED  # no include match
+    tests/test_main.py: EXCLUDED  # no include match
+    tests/test_utils.py: EXCLUDED  # no include match
+    tests/fixtures/data.json: EXCLUDED  # no include match (not in data/ folder)
+    tests/fixtures/sample.csv: EXCLUDED  # no include match (not in data/ folder)
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # -i data/ dist 1, -x **/*.csv dist 0 → exclude wins
+    data/cache/temp.dat: INCLUDED  # -i data/ dist 2, not .csv → no exclude match
+
+- id: TC-026
+  description: "Same distance, specificity tiebreak — path+glob exclude beats glob-only include"
+  flags: ["-i '**/*.py'", "-x 'tests/**/*.py'"]
+  no_default_ignore: false
+  checking: "Both at dist 0: -x tests/**/*.py (rank 5) is more specific than -i **/*.py (rank 8), so exclude wins"
+  verdicts:
+    README.md: EXCLUDED  # not .py
+    setup.py: INCLUDED  # matches **/*.py, no exclude match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # matches **/*.py, no exclude
+    src/config.py: INCLUDED  # matches **/*.py, no exclude
+    src/utils/helpers.py: INCLUDED  # matches **/*.py, no exclude
+    src/utils/__init__.py: INCLUDED  # matches **/*.py, no exclude
+    src/utils/vendor/lib.py: EXCLUDED  # default ignore (vendor/ directory)
+    src/feature/module.py: INCLUDED  # matches **/*.py, no exclude
+    src/feature/tests/test_module.py: EXCLUDED  # both dist 0: -x rank 5 beats -i rank 8
+    tests/conftest.py: EXCLUDED  # both dist 0: -x rank 5 beats -i rank 8
+    tests/test_main.py: EXCLUDED  # both dist 0: -x rank 5 beats -i rank 8
+    tests/test_utils.py: EXCLUDED  # both dist 0: -x rank 5 beats -i rank 8
+    tests/fixtures/data.json: EXCLUDED  # not .py
+    tests/fixtures/sample.csv: EXCLUDED  # not .py
+    docs/index.md: EXCLUDED  # not .py
+    docs/api.md: EXCLUDED  # not .py
+    scripts/deploy.sh: EXCLUDED  # not .py
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # not .py
+    data/cache/temp.dat: EXCLUDED  # not .py
+
+- id: TC-027
+  description: "Anchored folders differentiate same-named directories"
+  flags: ["-i './tests/'", "-x './src/feature/tests/'"]
+  no_default_ignore: false
+  checking: "Anchored ./tests/ only matches root tests/; anchored ./src/feature/tests/ only matches nested tests/"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # no include match
+    src/config.py: EXCLUDED  # no include match
+    src/utils/helpers.py: EXCLUDED  # no include match
+    src/utils/__init__.py: EXCLUDED  # no include match
+    src/utils/vendor/lib.py: EXCLUDED  # no include match
+    src/feature/module.py: EXCLUDED  # no include match
+    src/feature/tests/test_module.py: EXCLUDED  # no include matches (./tests/ doesn't match here); -x applies but moot
+    tests/conftest.py: INCLUDED  # matches ./tests/ dist 1, -x doesn't match root tests/
+    tests/test_main.py: INCLUDED  # matches ./tests/ dist 1
+    tests/test_utils.py: INCLUDED  # matches ./tests/ dist 1
+    tests/fixtures/data.json: INCLUDED  # matches ./tests/ dist 2
+    tests/fixtures/sample.csv: INCLUDED  # matches ./tests/ dist 2
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match
+
+- id: TC-028
+  description: "No-default-ignore with exclude Python — hidden files and node_modules visible"
+  flags: ["-x '**/*.py'"]
+  no_default_ignore: true
+  checking: "--no-default-ignore makes .env, .gitignore, and node_modules visible; -x still removes .py files"
+  verdicts:
+    README.md: INCLUDED  # not .py
+    setup.py: EXCLUDED  # matches **/*.py exclude
+    .env: INCLUDED  # --no-default-ignore, not .py
+    .gitignore: INCLUDED  # --no-default-ignore, not .py
+    src/main.py: EXCLUDED  # matches **/*.py exclude
+    src/config.py: EXCLUDED  # matches **/*.py exclude
+    src/utils/helpers.py: EXCLUDED  # matches **/*.py exclude
+    src/utils/__init__.py: EXCLUDED  # matches **/*.py exclude
+    src/utils/vendor/lib.py: EXCLUDED  # matches **/*.py exclude
+    src/feature/module.py: EXCLUDED  # matches **/*.py exclude
+    src/feature/tests/test_module.py: EXCLUDED  # matches **/*.py exclude
+    tests/conftest.py: EXCLUDED  # matches **/*.py exclude
+    tests/test_main.py: EXCLUDED  # matches **/*.py exclude
+    tests/test_utils.py: EXCLUDED  # matches **/*.py exclude
+    tests/fixtures/data.json: INCLUDED  # not .py
+    tests/fixtures/sample.csv: INCLUDED  # not .py
+    docs/index.md: INCLUDED  # not .py
+    docs/api.md: INCLUDED  # not .py
+    scripts/deploy.sh: INCLUDED  # not .py
+    node_modules/package/index.js: INCLUDED  # --no-default-ignore, not .py
+    data/output.csv: INCLUDED  # not .py
+    data/cache/temp.dat: INCLUDED  # not .py
+
+- id: TC-029
+  description: "Multiple glob includes — union of .md and .csv"
+  flags: ["-i '**/*.md'", "-i '**/*.csv'"]
+  no_default_ignore: false
+  checking: "Two file globs form a union; includes all .md and .csv files at any depth"
+  verdicts:
+    README.md: INCLUDED  # matches **/*.md
+    setup.py: EXCLUDED  # not .md or .csv
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: EXCLUDED  # not .md or .csv
+    src/config.py: EXCLUDED  # not .md or .csv
+    src/utils/helpers.py: EXCLUDED  # not .md or .csv
+    src/utils/__init__.py: EXCLUDED  # not .md or .csv
+    src/utils/vendor/lib.py: EXCLUDED  # not .md or .csv
+    src/feature/module.py: EXCLUDED  # not .md or .csv
+    src/feature/tests/test_module.py: EXCLUDED  # not .md or .csv
+    tests/conftest.py: EXCLUDED  # not .md or .csv
+    tests/test_main.py: EXCLUDED  # not .md or .csv
+    tests/test_utils.py: EXCLUDED  # not .md or .csv
+    tests/fixtures/data.json: EXCLUDED  # not .md or .csv
+    tests/fixtures/sample.csv: INCLUDED  # matches **/*.csv
+    docs/index.md: INCLUDED  # matches **/*.md
+    docs/api.md: INCLUDED  # matches **/*.md
+    scripts/deploy.sh: EXCLUDED  # not .md or .csv
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: INCLUDED  # matches **/*.csv
+    data/cache/temp.dat: EXCLUDED  # not .md or .csv
+
+- id: TC-030
+  description: "Three-way conflict — exact anchored file wins specificity tiebreak at dist 0"
+  flags: ["-i './src/'", "-x '**/*.py'", "-i './src/main.py'"]
+  no_default_ignore: false
+  checking: "At dist 0: anchored exact file -i ./src/main.py (rank 1) beats glob -x **/*.py (rank 8); other src/ .py files excluded"
+  verdicts:
+    README.md: EXCLUDED  # no include match
+    setup.py: EXCLUDED  # no include match
+    .env: EXCLUDED  # default ignore
+    .gitignore: EXCLUDED  # default ignore
+    src/main.py: INCLUDED  # -i ./src/main.py dist 0 rank 1 beats -x **/*.py dist 0 rank 8
+    src/config.py: EXCLUDED  # -x **/*.py dist 0 beats -i ./src/ dist 1
+    src/utils/helpers.py: EXCLUDED  # -x **/*.py dist 0 beats -i ./src/ dist 2
+    src/utils/__init__.py: EXCLUDED  # -x **/*.py dist 0 beats -i ./src/ dist 2
+    src/utils/vendor/lib.py: EXCLUDED  # -x **/*.py dist 0 beats -i ./src/ dist 3
+    src/feature/module.py: EXCLUDED  # -x **/*.py dist 0 beats -i ./src/ dist 2
+    src/feature/tests/test_module.py: EXCLUDED  # -x **/*.py dist 0 beats -i ./src/ dist 3
+    tests/conftest.py: EXCLUDED  # no include match
+    tests/test_main.py: EXCLUDED  # no include match
+    tests/test_utils.py: EXCLUDED  # no include match
+    tests/fixtures/data.json: EXCLUDED  # no include match
+    tests/fixtures/sample.csv: EXCLUDED  # no include match
+    docs/index.md: EXCLUDED  # no include match
+    docs/api.md: EXCLUDED  # no include match
+    scripts/deploy.sh: EXCLUDED  # no include match
+    node_modules/package/index.js: EXCLUDED  # default ignore
+    data/output.csv: EXCLUDED  # no include match
+    data/cache/temp.dat: EXCLUDED  # no include match

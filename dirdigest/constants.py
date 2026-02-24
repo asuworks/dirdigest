@@ -76,7 +76,6 @@ DEFAULT_IGNORE_PATTERNS = [
     "**/*.exe",  # Executables (Windows)
     "**/*.com",
     "**/*.bat",
-    "**/*.sh",  # Shell scripts might be executables not source, user can include if needed
     # --- Common Binary, Media, and Large Data Files (extensions) ---
     # These are less likely to need globstar unless they are organized in specific ways
     # For these, simple extension matching is usually sufficient.
