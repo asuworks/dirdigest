@@ -1,0 +1,81 @@
+---
+session: general
+date: 2026-02-23
+status: partial
+outcome: PARTIAL_PLUS
+---
+
+goal: Implement Smart Pattern Rules v1.0 for dirdigest -i/-x flags with specificity-based conflict resolution and --dry-run
+now: Run parallel sub-agent validation of CLI examples to verify all 7 pattern rules work correctly end-to-end
+
+test: pytest tests/ -v
+
+done_this_session:
+  - task: Complete rewrite of pattern matching engine with smart anchoring, type discrimination, POSIX globs
+    files: [dirdigest/utils/patterns.py]
+  - task: Added specificity-based conflict resolution (8-rank system) to core traversal
+    files: [dirdigest/core.py]
+  - task: Added --dry-run/--explain CLI flag showing pattern resolution table
+    files: [dirdigest/cli.py]
+  - task: Wrote 90 unit tests for pattern engine
+    files: [tests/test_smart_patterns.py]
+  - task: Wrote 32 unit tests for specificity resolution
+    files: [tests/test_specificity.py]
+  - task: Fixed directory pruning bug — excluded dirs still traversed when higher-specificity includes exist
+    files: [dirdigest/core.py]
+  - task: Updated existing tests for new pattern behavior (*.py → **/*.py for recursive)
+    files: [tests/test_traversal_filtering.py]
+  - task: Created CLAUDE.md with full architecture docs, renamed AGENTS.md to pointer
+    files: [CLAUDE.md, AGENTS.md]
+  - task: Restored test fixture directories from git history
+    files: [tests/fixtures/test_dirs/]
+
+blockers: []
+
+questions:
+  - Does --dry-run output need quiet/verbose flag integration or is stdout_console always OK?
+  - Should "Did you mean?" errors (spec feature) be added now or deferred?
+  - Performance of parse_pattern() for very large directory trees — caching worth it?
+
+decisions:
+  - parallel_agent_strategy: Used 3 parallel worktree agents (kraken x2 + spark) for Phase 1, then arbiter for test fixes. Merged by adapting APIs to Phase 1A's authoritative patterns.py.
+  - default_ignores_separate: Default ignore patterns checked independently before specificity resolution. They always win unless --no-default-ignore.
+  - dir_pruning_with_overrides: Directories excluded by -x are NOT pruned from os.walk if any include pattern has higher specificity (lower rank number). This allows tests/test_main.py to override -x tests/. See core.py:282-298.
+  - backward_compat_wrappers: matches_pattern() and matches_patterns() wrappers preserved for DEFAULT_IGNORE_PATTERNS checking. New code uses ParsedPattern API directly.
+
+findings:
+  - api_mismatch_in_parallel: Three parallel agents each created incompatible pattern APIs (different attribute names, swapped arg order). Main context had to reconcile during merge. Define contracts MORE precisely in Phase 0 next time.
+  - dir_pruning_critical_bug: os.walk prunes excluded dirs, preventing files inside from being evaluated. Two bugs found — file-only includes pruning all dirs (arbiter fix at core.py:80-83), and excluded dirs not traversed for override includes (core.py:282-298).
+  - star_py_root_only: "*.py" matches root-level only per POSIX spec. Tests using --include *.py expecting recursive had to change to --include **/*.py.
+
+worked:
+  - Parallel worktree agents for independent streams (patterns.py, core.py, cli.py)
+  - Phase 0 interface stubs before parallel work
+  - Arbiter agent for bulk test fixing (found 5 distinct issues across 9 failures)
+
+failed:
+  - Phase 0 stubs weren't precise enough — agents diverged on attribute names (raw vs original, specificity vs rank, is_folder vs is_dir) and function signatures (matches_path arg order)
+
+next:
+  - Fix --dry-run showing directories as INCLUDED when no files inside match include patterns. Dirs without matched files should be filtered out from results display. This is a display/logic issue — dirs are allowed through os.walk for traversal but should not appear as "INCLUDED" in output unless they contain matched files.
+  - Run parallel sub-agents to validate ALL spec examples from Quick Reference table via CLI --dry-run
+  - Verify anchored patterns (./src/ vs src/) produce different results
+  - Verify specificity override example (tests/test_main.py overrides -x tests/) — confirmed working
+  - Add "Did you mean?" error for type mismatches (literal patterns only) — spec Phase 2 feature
+  - Add default-ignore conflict warning when -i matches default-ignored path — partially implemented
+  - Consider adding tests for --dry-run output format
+  - Run make validate (format + lint + type check + tests)
+
+files:
+  created:
+    - tests/test_smart_patterns.py
+    - tests/test_specificity.py
+    - CLAUDE.md
+    - thoughts/shared/handoffs/general/2026-02-23_17-15_smart-pattern-rules-impl.yaml
+  modified:
+    - dirdigest/utils/patterns.py
+    - dirdigest/core.py
+    - dirdigest/cli.py
+    - tests/test_traversal_filtering.py
+    - AGENTS.md
+    - tests/fixtures/test_dirs/

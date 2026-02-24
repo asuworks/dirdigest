@@ -1,0 +1,72 @@
+---
+session: general
+date: 2026-02-23
+status: partial
+outcome: PARTIAL_MINUS
+---
+
+goal: Fix specificity resolution bugs — ancestor penalty, dir traversal, dry-run display accuracy
+now: Verify ancestor penalty rule against all 7 spec rules, add tests for new behaviors, consider edge cases
+
+test: make validate
+
+done_this_session:
+  - task: Fixed dry-run showing traversal-only dirs as INCLUDED — filtered from log_events at source in core.py
+    files: [dirdigest/core.py, dirdigest/cli.py]
+  - task: Fixed dry-run summary inflating included count with folders — now shows separate file/folder counts
+    files: [dirdigest/cli.py]
+  - task: Fixed deep folder includes (-i '**/utils/') not traversing parent dirs — os.walk pruned parents before reaching target
+    files: [dirdigest/core.py]
+  - task: Fixed **/exact.py getting rank 8 instead of rank 6 — removed explicit_recursive gate from ranks 6 and 7
+    files: [dirdigest/utils/patterns.py]
+  - task: Implemented ancestor penalty — folder patterns matching subdirs by containment get degraded specificity
+    files: [dirdigest/utils/patterns.py, dirdigest/core.py]
+  - task: Validated all 8 Quick Reference spec examples via --dry-run CLI end-to-end
+    files: []
+
+blockers: []
+
+questions:
+  - Does the ancestor penalty interact correctly with ALL 7 spec rules? Needs systematic verification.
+  - Should anchored multi-segment folder patterns (./a/b/) get ancestor penalty for ./a/b/c? Currently yes — verify this is desired.
+  - Edge case — what happens with -i './a/' -x './a/b/' -i './a/b/c/'? Triple nesting with alternating include/exclude.
+
+decisions:
+  - ancestor_penalty_dirs_only: Ancestor penalty only applies to directory-vs-directory resolution (is_dir=True). For files, folder exclusions work via os.walk pruning, so no penalty needed. This preserves tests/ excluding tests/test_other.py correctly.
+  - direct_vs_containment: For unanchored folder patterns, a match is "direct" if pattern segments align with the LAST segments of the path (suffix match). Otherwise it's ancestor/containment. See patterns.py:is_ancestor_match().
+  - explicit_recursive_specificity: **/exact.py now gets rank 6 (same as exact.py), **/folder/ gets rank 7. The **/ prefix means "at any depth" but doesn't reduce pattern specificity. Only wildcards (* ?) reduce to rank 8.
+  - traversal_only_not_logged: Directories allowed through os.walk purely for traversal (no direct include match) are no longer logged as "included" in log_events. This fixes both dry-run and standard console output.
+
+findings:
+  - ancestor_principle: "When include and exclude conflict, the pattern that most specifically targets that path wins. Direct name > parent containment. Within each level, 8-rank system breaks ties. Ties at same level, exclude wins."
+  - pruning_depth_interaction: Directory pruning and ancestor penalty interact — when a dir is excluded but has ancestor penalty on the include, the pruning check (best_include_rank >= best_exclude_rank) uses RAW ranks not penalized ranks. This is correct because pruning is about whether files inside COULD match, not about the dir itself.
+  - is_ancestor_match_suffix: For unanchored patterns, checking len(path_parts) > len(segments) is wrong — it flags direct suffix matches as ancestors. Must check if pattern aligns with LAST segments of path. See patterns.py:175-185.
+
+worked:
+  - Fixing specificity at the source (core.py resolve_pattern_conflicts) rather than patching display
+  - Testing with real project directory (not just fixtures) to catch real-world issues
+  - Incremental fixes with test verification after each change
+
+failed:
+  - First ancestor penalty attempt applied to files too, breaking folder exclusions for file containment (tests/ not excluding tests/*.py). Had to restrict to is_dir=True only.
+  - First unanchored ancestor detection used simple len comparison, incorrectly flagging direct suffix matches. Fixed with tail-segment comparison.
+
+next:
+  - Systematically verify ancestor penalty against ALL 7 spec rules — create a test matrix
+  - Test edge cases — triple nesting (-i './a/' -x './a/b/' -i './a/b/c/'), multiple overlapping ancestors
+  - Add tests for **/exact.py rank 6 and **/folder/ rank 7 specificity
+  - Add tests for is_ancestor_match() directly in test_smart_patterns.py
+  - Add integration tests for -i './dirdigest/' -x '**/utils/' in test_traversal_filtering.py
+  - Add dry-run output format tests (file/folder count separation, traversal-only filtering)
+  - Update spec document (thoughts/shared/specs/2026-02-23-smart-pattern-rules.md) with ancestor penalty rule
+  - Consider whether ancestor penalty magnitude (currently +10) needs tuning
+  - Run make validate after adding tests
+  - Commit all changes from both sessions
+
+files:
+  created:
+    - thoughts/shared/handoffs/general/2026-02-23_19-30_specificity-ancestor-penalty.yaml
+  modified:
+    - dirdigest/utils/patterns.py
+    - dirdigest/core.py
+    - dirdigest/cli.py

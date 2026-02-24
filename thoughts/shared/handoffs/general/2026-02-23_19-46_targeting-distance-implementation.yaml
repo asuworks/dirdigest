@@ -1,0 +1,81 @@
+---
+session: general
+date: 2026-02-23
+status: partial
+outcome: PARTIAL_MINUS
+---
+
+goal: Implement targeting distance — replace ancestor penalty with per-path distance-based conflict resolution
+now: Run LLM-generated test cases against the implementation to validate all 30 scenarios
+
+test: make validate
+
+done_this_session:
+  - task: Created _suffix_match_folder_position() helper — returns match start index for distance computation
+    files: [dirdigest/utils/patterns.py]
+  - task: Replaced is_ancestor_match() with compute_targeting_distance() — returns 0 for direct match, N for ancestor depth, 999 sentinel
+    files: [dirdigest/utils/patterns.py]
+  - task: Updated resolve_pattern_conflicts() to compare (distance, rank) tuples instead of flat rank + ancestor_penalty
+    files: [dirdigest/core.py]
+  - task: Updated pruning logic — smarter heuristic checks if file includes could match inside excluded dirs before pruning
+    files: [dirdigest/core.py]
+  - task: Reversed 2 existing tests (test_conflict_exclude_wins_by_specificity, test_full_spec_example) to match new spec
+    files: [tests/test_specificity.py]
+  - task: Added 19 compute_targeting_distance unit tests across 4 test classes
+    files: [tests/test_smart_patterns.py]
+  - task: Added 7 TestTargetingDistanceResolution integration tests
+    files: [tests/test_specificity.py]
+  - task: Added 3 CLI integration tests (file-beats-folder, targeted-file-exclude, include-dir-exclude-subdir)
+    files: [tests/test_traversal_filtering.py]
+  - task: Updated Rule 6 in spec with targeting distance documentation
+    files: [thoughts/shared/specs/2026-02-23-smart-pattern-rules.md]
+  - task: Rewrote README Smart Pattern Matching section with "3 Moves" format (scope/carve/cherry-pick)
+    files: [README.md]
+  - task: Created LLM prompt + sample worktree for generating 30 test cases in next session
+    files: []
+
+blockers: []
+
+questions:
+  - Should the 30 LLM-generated test cases be added as parametrized pytest tests or kept as a separate validation script?
+  - The "Use Case Examples" section in README still uses old patterns (e.g., `-x 'tests/'` to exclude all test files) — update?
+
+decisions:
+  - targeting_distance_over_ancestor_penalty: "Distance 0 = direct match, N = ancestor depth. File patterns always distance 0 for matched files. Folder patterns distance ≥1 for contained files. This makes file includes beat folder excludes for files, matching user mental model."
+  - sentinel_999_not_negative_1: "Non-match returns 999 (sorts last) instead of -1 (would sort first in min()). Safe failure mode per pre-mortem."
+  - suffix_match_position_refactor: "Created _suffix_match_folder_position() returning int|None, made _suffix_match_folder() a thin wrapper. Zero behavior change for existing callers."
+  - pruning_smart_heuristic: "Don't prune excluded dirs if any file-level include (unanchored/recursive) could match inside. Anchored includes to different subtrees still allow pruning."
+  - spec_change_documented: "README and spec updated to clarify that -x 'tests/' only excludes the folder, not files matched by file-level -i patterns. Use -x 'tests/**/*.py' to exclude files by type."
+
+findings:
+  - resolution_tuple: "(distance, rank) comparison as Python tuples naturally gives correct priority — distance first, rank breaks ties."
+  - key_behavior_change: "-i '**/*.py' -x 'tests/' now INCLUDES .py files in tests/ (distance 0 beats distance 1). To exclude, use -x 'tests/**/*.py'."
+  - all_226_tests_pass: "make validate clean — 226 tests, 0 type errors, 0 lint issues."
+  - dry_run_verification: "All 3 CLI examples (formatter exclude, cherry-pick, file-beats-folder) produce correct output."
+
+worked:
+  - Pre-mortem before implementation — caught 3 tigers, all mitigated before coding
+  - Building _suffix_match_folder_position() as refactor first (task 1) — zero-risk foundation
+  - Smoke-testing compute_targeting_distance() with inline Python before integrating into core.py
+  - Sequential task execution with tests after each step
+
+failed: []
+
+next:
+  - Generate 30 test cases using the LLM prompt (sample worktree + spec description created this session)
+  - Run generated test cases against implementation, fix any discrepancies
+  - Update "Use Case Examples" section in README (still references old `-x 'tests/'` behavior)
+  - Consider whether to commit all changes (currently uncommitted on worktree-agent-aaf4360c branch)
+  - Store targeting distance learning in memory system
+
+files:
+  created:
+    - thoughts/shared/handoffs/general/2026-02-23_19-46_targeting-distance-implementation.yaml
+  modified:
+    - dirdigest/utils/patterns.py
+    - dirdigest/core.py
+    - tests/test_smart_patterns.py
+    - tests/test_specificity.py
+    - tests/test_traversal_filtering.py
+    - thoughts/shared/specs/2026-02-23-smart-pattern-rules.md
+    - README.md

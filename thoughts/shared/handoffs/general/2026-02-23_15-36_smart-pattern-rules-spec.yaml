@@ -1,0 +1,65 @@
+---
+session: general
+date: 2026-02-23
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Design intuitive pattern interpretation rules for dirdigest CLI include/exclude flags
+now: Implement the smart pattern rules spec at thoughts/shared/specs/2026-02-23-smart-pattern-rules.md
+
+test: pytest tests/ -v
+
+done_this_session:
+  - task: Deep codebase exploration of entire dirdigest project
+    files: [dirdigest/cli.py, dirdigest/core.py, dirdigest/formatter.py, dirdigest/constants.py, dirdigest/utils/patterns.py, dirdigest/utils/system.py]
+  - task: Discovery interview - iteratively designed pattern rules through 10+ question rounds
+    files: []
+  - task: Pre-mortem analysis identifying 3 tigers, 2 elephants
+    files: []
+  - task: Wrote complete specification document
+    files: [thoughts/shared/specs/2026-02-23-smart-pattern-rules.md]
+
+blockers: []
+
+questions:
+  - Should --dry-run be a separate flag or a verbosity level (-vvv)?
+  - Should "Did you mean?" errors be auto-correctable with --auto-fix-patterns?
+  - Performance of specificity computation for large directory trees — caching needed?
+
+decisions:
+  - standard_glob_semantics: Chose POSIX standard globs over custom recursive-by-default. Familiar to all CLI users, avoids breaking expectations. Pre-mortem tiger identified non-standard globs as high risk.
+  - smart_anchoring: "./" prefix = exact path from root; bare pattern = suffix match at any depth. Less specified = broader search.
+  - strict_file_folder_discrimination: Trailing slash = folder, no slash = file. Strict with helpful "Did you mean?" errors.
+  - specificity_precedence: When -i and -x conflict, most specific pattern wins (8-level ranking). Equal rank = -x wins.
+  - default_ignores_always_apply: -i does NOT override default ignores. Warning emitted when conflict detected.
+  - multiple_includes_are_OR: Each -i adds to result set. AND expressed via path composition (e.g., tests/**/*.py).
+  - dry_run_flag: Add --dry-run/--explain to show pattern resolution transparently.
+
+findings:
+  - pattern_rules_table: 7 rules covering anchoring, type discrimination, wildcards, OR semantics, exclusion symmetry, specificity precedence, and default ignore behavior
+  - current_patterns_py_uses_fnmatch: dirdigest/utils/patterns.py:8-51 — complete rewrite needed for new rules
+  - core_py_no_specificity: dirdigest/core.py:95-101 — currently simple pattern check, needs specificity-based conflict resolution
+  - test_output_formatting_duplicate: tests/test_output_formatting.py and tests/test_cli_sorting_and_logging.py are near-identical — cleanup opportunity
+
+worked:
+  - Discovery interview with concrete examples and side-by-side comparisons
+  - Pre-mortem caught glob semantics risk early — changed from custom to standard
+  - Building rules incrementally with user validation at each step
+
+failed: []
+
+next:
+  - Implement new pattern interpretation in dirdigest/utils/patterns.py (rewrite matches_pattern)
+  - Add specificity ranking to dirdigest/core.py conflict resolution
+  - Add --dry-run flag to dirdigest/cli.py
+  - Add "Did you mean?" error for type mismatches (literal patterns only)
+  - Add warning when -i pattern conflicts with default ignores
+  - Write tests for all new pattern rules
+  - Consider cleaning up duplicate test files (test_output_formatting.py / test_cli_sorting_and_logging.py)
+
+files:
+  created:
+    - thoughts/shared/specs/2026-02-23-smart-pattern-rules.md
+    - thoughts/shared/handoffs/general/2026-02-23_15-36_smart-pattern-rules-spec.yaml
+  modified: []
