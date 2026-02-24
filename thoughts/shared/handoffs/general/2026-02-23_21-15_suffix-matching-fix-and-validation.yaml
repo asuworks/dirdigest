@@ -1,0 +1,67 @@
+---
+session: general
+date: 2026-02-23
+status: complete
+outcome: SUCCEEDED
+---
+
+goal: Fix suffix matching bugs and validate targeting distance with 30 test cases
+now: Update README "Use Case Examples" and consider pushing to remote
+
+test: make validate
+
+done_this_session:
+  - task: Fixed single-name literal file patterns to suffix-match at any depth (config.py now matches src/config.py)
+    files: [dirdigest/utils/patterns.py]
+  - task: Fixed unanchored multi-segment path+glob patterns to suffix-match (tests/**/*.py now matches src/feature/tests/test_module.py)
+    files: [dirdigest/utils/patterns.py]
+  - task: Created 30 YAML-driven validation test cases covering all pattern rules
+    files: [tests/test_cases.yaml]
+  - task: Built parametrized pytest runner for YAML test cases (module-scoped fixture, temp project)
+    files: [tests/test_evaluate_cases.py]
+  - task: Fixed 10 test case verdicts where vendor/lib.py was incorrectly expected INCLUDED (vendor/ is default-ignored)
+    files: [tests/test_cases.yaml]
+  - task: Committed all smart pattern work (f10f823) and project docs (99b429a) to main
+    files: []
+
+blockers: []
+
+questions:
+  - README lines 175 and 275 still say "-x takes precedence over includes" — now incorrect with targeting distance. Update?
+  - Should the original test_cases.yaml in project root be deleted? (copy lives in tests/)
+
+decisions:
+  - suffix_match_literal_not_wildcard: "Single-segment file patterns: literal names (config.py) match basename at any depth; wildcarded (*.py) stay root-only. Distinguishes Rule 1 suffix matching from Rule 3 glob semantics."
+  - unanchored_doublestar_sliding: "For unanchored patterns with ** (like tests/**/*.py), try _match_segments from each start position in path_parts. Anchored patterns still match from position 0 only."
+  - vendor_is_default_ignored: "DEFAULT_IGNORE_PATTERNS includes **/vendor/ (constants.py:43). Test cases corrected to expect EXCLUDED for src/utils/vendor/lib.py when no_default_ignore=false."
+  - yaml_pytest_over_standalone: "Converted standalone evaluate.py to parametrized pytest (test_evaluate_cases.py). Each YAML case = 1 pytest test. Runs with make test automatically."
+
+findings:
+  - two_bugs_in_matches_file: "_matches_file() had two suffix matching gaps: (1) all single-segment patterns were root-only regardless of wildcards, (2) unanchored **-containing patterns called _match_doublestar_file which always started at position 0."
+  - fix_locations: "Both fixes in dirdigest/utils/patterns.py:_matches_file(), lines 302-316. Minimal changes, no new functions needed."
+  - test_coverage: "256 total tests (226 existing + 30 YAML). 660 file-level verdicts across 30 cases. All pass."
+
+worked:
+  - Parallel agents (3x) for running test case batches — fast feedback
+  - Using core.process_directory_recursive() API directly in evaluation instead of parsing CLI output
+  - Regex-based YAML fix to preserve comments (yaml.dump strips them)
+
+failed:
+  - First vendor verdict fix used yaml.dump which stripped all inline comments — had to redo with regex
+  - Overly broad regex replaced vendor verdicts in no_default_ignore=true cases too (TC-009)
+
+next:
+  - Fix README inaccuracies (lines 175, 275 say "-x takes precedence" — now wrong)
+  - Delete root-level test_cases.yaml (duplicate of tests/test_cases.yaml)
+  - Store targeting distance + suffix matching learnings in memory system
+  - Consider pushing commits to remote
+  - Pre-commit YAML checker doesn't support multi-document streams — consider excluding thoughts/ dir
+
+files:
+  created:
+    - tests/test_cases.yaml
+    - tests/test_evaluate_cases.py
+    - thoughts/shared/handoffs/general/2026-02-23_21-15_suffix-matching-fix-and-validation.yaml
+  modified:
+    - dirdigest/utils/patterns.py
+    - Makefile
